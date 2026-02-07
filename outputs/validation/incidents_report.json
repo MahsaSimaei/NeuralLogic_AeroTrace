@@ -1,0 +1,98 @@
+{
+  "total_incidents": 45,
+  "by_type": {},
+  "incidents": [
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 0,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 1,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 2,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 3,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 598,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 599,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 600,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 602,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 603,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 604,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 605,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 606,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 607,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 608,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 609,
+      "density": 57.10463694885298
+    },
+    {
+      "type": "FRENADA_BRUSCA",
+      "severity": "MEDIA",
+      "tracker_id": 

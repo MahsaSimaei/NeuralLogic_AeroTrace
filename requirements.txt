@@ -1,0 +1,8 @@
+ultralytics
+supervision==0.18.0
+opencv-python
+numpy
+pandas
+plotly
+scipy
+tqdm
