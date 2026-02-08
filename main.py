@@ -84,8 +84,8 @@ class Config:
     
     # TRACKING MEJORADO
     TRACK_THRESH: float = 0.15
-    TRACK_BUFFER: int = 90  # Frames de memoria
-    MATCH_THRESH: float = 0.80
+    TRACK_BUFFER: int = 150  # Frames de memoria
+    MATCH_THRESH: float = 0.90
     
     # PARÁMETROS DE INCIDENTES
     VELOCIDAD_MIN_MOVIMIENTO: float = 0.5  # m/s
@@ -127,18 +127,46 @@ class TrafficEngineer:
     """Cálculo avanzado de métricas de ingeniería de tráfico"""
     
     def __init__(self, image_width_px: int, image_height_px: int):
-        # Calibración espacial
+        # 1. CÁLCULO TRIGONOMÉTRICO 
+        # Convertir FOV a radianes
         fov_rad = np.radians(CONFIG.FOV_HORIZONTAL_GRADOS)
+        
+        # Calcular el ancho real del terreno visible (Trigonometría básica de cámara)
+        # Ancho = 2 * Altura_Vuelo * tan(FOV / 2)
         ancho_terreno_m = 2 * CONFIG.ALTURA_VUELO_M * np.tan(fov_rad / 2)
+        
+        # Calcular alto proporcional
+        alto_terreno_m = ancho_terreno_m * (image_height_px / image_width_px)
+        
+        # 2. CÁLCULO DEL GSD (Ground Sample Distance)
         self.gsd = ancho_terreno_m / image_width_px
         
-        # Información del sistema
+        # Información del sistema en consola
         print(f"🔧 CALIBRACIÓN DEL SISTEMA")
         print(f"   - Resolución: {image_width_px}x{image_height_px} px")
         print(f"   - GSD (Ground Sample Distance): {self.gsd:.4f} m/px")
-        print(f"   - Área de cobertura: {ancho_terreno_m:.1f} x {ancho_terreno_m * image_height_px / image_width_px:.1f} m")
+        print(f"   - Área de cobertura: {ancho_terreno_m:.1f} x {alto_terreno_m:.1f} m")
         
-        # Umbrales de densidad para Level of Service (HCM 2010)
+        # 3. MATRIZ DE HOMOGRAFÍA (Ajuste de perspectiva)
+        # Define 4 puntos en la imagen (esquinas)
+        src_points = np.float32([
+            [0, 0], 
+            [image_width_px, 0], 
+            [0, image_height_px], 
+            [image_width_px, image_height_px]
+        ])
+        
+        # Define las coordenadas reales correspondientes en metros (Top-Down View)
+        dst_points = np.float32([
+            [0, 0], 
+            [ancho_terreno_m, 0], 
+            [0, alto_terreno_m], 
+            [ancho_terreno_m, alto_terreno_m]
+        ])
+        
+        self.homography_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
+
+        # 4. UMBRALES DE DENSIDAD (HCM 2010)
         self.los_thresholds = {
             'A': (0, 14),      # Flujo libre
             'B': (14, 22),     # Flujo razonablemente libre
@@ -147,6 +175,19 @@ class TrafficEngineer:
             'E': (45, 67),     # Flujo inestable
             'F': (67, float('inf'))  # Flujo forzado
         }
+
+    def pixel_to_world(self, px: float, py: float) -> Tuple[float, float]:
+        """Transforma coordenadas de píxel a coordenadas métricas reales usando Homografía"""
+        # Esta función usa la matriz para corregir perspectiva si la hubiera
+        point = np.array([[[px, py]]], dtype=np.float32)
+        transformed = cv2.perspectiveTransform(point, self.homography_matrix)
+        return transformed[0][0][0], transformed[0][0][1]
+
+    def get_real_coords(self, px: float, py: float) -> Tuple[float, float]:
+        """Transforma píxeles a metros reales usando GSD simple (Alternativa rápida)"""
+        real_x = px * self.gsd
+        real_y = py * self.gsd
+        return real_x, real_y
     
     def pixel_to_meters(self, px_distance: float) -> float:
         """Convierte distancia en píxeles a metros"""
@@ -194,7 +235,7 @@ class TrafficEngineer:
         return (vehicle_count / max_capacity) * 100
     
     def estimate_speed_from_trajectory(self, positions: List[np.ndarray], 
-                                      timestamps: List[float]) -> Optional[float]:
+                                       timestamps: List[float]) -> Optional[float]:
         """
         Estima velocidad promedio a partir de trayectoria
         Velocidad = distancia_total / tiempo_total (m/s)
@@ -1168,6 +1209,16 @@ class AeroTraceSystem:
         self.sector_metrics = defaultdict(list)
         
         print("✅ Sistema inicializado correctamente\n")
+
+        def callback(image: np.ndarray) -> sv.Detections:
+            results = self.model(image, imgsz=640, verbose=False)[0]
+            return sv.Detections.from_ultralytics(results)
+
+        self.slicer = sv.InferenceSlicer(
+            callback=callback,
+            slice_wh=(640, 640),
+            overlap_ratio_wh=(0.2, 0.2) # 20% de solape para no cortar coches a la mitad
+        )
     
     def enhance_image(self, frame: np.ndarray) -> np.ndarray:
         """Mejora contraste de imagen con CLAHE"""
@@ -1288,7 +1339,8 @@ class AeroTraceSystem:
                     device='cuda' if self.model.device.type == 'cuda' else 'cpu'
                 )[0]
                 
-                detections = sv.Detections.from_ultralytics(results)
+                # En lugar de model(frame), usamos el slicer
+                detections = self.slicer(enhanced_frame)
                 
                 # ============ FILTRADO ============
                 
