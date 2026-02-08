@@ -1,0 +1,21 @@
+{
+  "summary": {
+    "total": 1,
+    "by_type": {
+      "DENSIDAD_PELIGROSA": 1
+    },
+    "by_severity": {
+      "ALTA": 1
+    }
+  },
+  "incidents": [
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "ALTA",
+      "frame": 0,
+      "timestamp": "2026-02-08T21:54:25.286625",
+      "density_veh_km2": 57.10463694885298,
+      "vehicle_count": 1
+    }
+  ]
+}

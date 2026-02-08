@@ -1,8 +1,45 @@
-ultralytics
-supervision==0.18.0
-opencv-python
-numpy
-pandas
-plotly
-scipy
-tqdm
+# ============================================================================
+# AEROTRACE v2.0 - REQUIREMENTS
+# Sistema de Análisis de Tráfico con UAV
+# ============================================================================
+
+# Core Machine Learning & Computer Vision
+# ----------------------------------------
+ultralytics>=8.0.0           # YOLOv8 para detección de objetos
+torch>=2.0.0                 # PyTorch (backend de YOLO)
+torchvision>=0.15.0          # Visión por computadora de PyTorch
+opencv-python>=4.8.0         # OpenCV para procesamiento de imágenes
+supervision>=0.18.0          # Roboflow Supervision (ByteTrack, anotadores)
+
+# Data Science & Analytics
+# -------------------------
+pandas>=2.0.0                # Manipulación de datos
+numpy>=1.24.0                # Arrays y operaciones numéricas
+scipy>=1.10.0                # Funciones científicas (distance, etc.)
+
+# Visualization & Dashboards
+# ---------------------------
+plotly>=5.14.0               # Gráficas interactivas
+matplotlib>=3.7.0            # Visualización estática
+kaleido>=0.2.1               # Exportación de Plotly a imagen
+
+# Web Interface
+# -------------
+streamlit>=1.28.0            # Framework para UI web
+
+# Utilities
+# ---------
+tqdm>=4.65.0                 # Barras de progreso
+pillow>=10.0.0               # Manipulación de imágenes
+python-dateutil>=2.8.0       # Manejo de fechas
+
+# Optional (para aceleración GPU)
+# --------------------------------
+# torch+cu118                # PyTorch con CUDA 11.8 (instalar manualmente)
+# torchvision+cu118          # TorchVision con CUDA 11.8 (instalar manualmente)
+
+# Development & Testing (opcional)
+# ---------------------------------
+# pytest>=7.4.0              # Testing
+# black>=23.0.0              # Code formatter
+# flake8>=6.0.0              # Linter

@@ -1,0 +1,41 @@
+{
+  "scene_id": "output",
+  "location": null,
+  "generated_at": "2026-02-08T20:54:40.421018Z",
+  "statistics": {
+    "total_images_processed": 1,
+    "total_analyses": 1,
+    "total_transactions": 1
+  },
+  "etl_chain": [
+    "be5ac2f4a30e482c869f79701465886c"
+  ],
+  "blockchain_transactions": [
+    {
+      "transaction_id": "be5ac2f4a30e482c869f79701465886c",
+      "timestamp": "2026-02-08T20:54:40.421018Z",
+      "scene_id": "output",
+      "image_hash": "afe1ead7d8374cd55d5395c483553f4111add23e1604826f335ec72e747d26ad",
+      "metrics_hash": "d2eedf280ee4826716d24be171c92e11c8b2d1f58b10a6219d8ab5da6f2ace55",
+      "payload": {
+        "metrics": {
+          "total_flow": 0,
+          "max_density": 57.10463694885298,
+          "total_incidents": 1
+        },
+        "total_vehicles": 0,
+        "incident_count": 1
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": null
+    }
+  ],
+  "image_evidences": [
+    {
+      "image_hash": "afe1ead7d8374cd55d5395c483553f4111add23e1604826f335ec72e747d26ad",
+      "timestamp": "2026-02-08T20:54:23.405021Z",
+      "scene_id": "output",
+      "location": null
+    }
+  ]
+}
