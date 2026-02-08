@@ -11,9 +11,7 @@ from typing import Optional, Dict
 import json
 import numpy as np
 
-# ==========================================
-# 🚨 PEGA ESTO AQUÍ (LO QUE TE FALTA)
-# ==========================================
+
 try:
     from bsv_blockchain import BSVEvidenceRegistry
     BLOCKCHAIN_AVAILABLE = True

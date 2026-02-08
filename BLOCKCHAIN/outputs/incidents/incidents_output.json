@@ -1,21 +1,161 @@
 {
   "summary": {
-    "total": 1,
+    "total": 15,
     "by_type": {
-      "DENSIDAD_PELIGROSA": 1
+      "DENSIDAD_PELIGROSA": 5,
+      "CONFLICTO_ESPACIAL": 6,
+      "FRENADA_BRUSCA": 4
     },
     "by_severity": {
-      "ALTA": 1
+      "CRITICA": 5,
+      "ALTA": 6,
+      "MEDIA": 4
     }
   },
   "incidents": [
     {
       "type": "DENSIDAD_PELIGROSA",
-      "severity": "ALTA",
+      "severity": "CRITICA",
       "frame": 0,
-      "timestamp": "2026-02-08T21:54:25.286625",
-      "density_veh_km2": 57.10463694885298,
+      "timestamp": "2026-02-08T22:06:09.186280",
+      "density_veh_km2": 92.00635211899109,
       "vehicle_count": 1
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 223,
+      "timestamp": "2026-02-08T22:09:19.416952",
+      "density_veh_km2": 92.00635211899109,
+      "vehicle_count": 1
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 241,
+      "timestamp": "2026-02-08T22:09:35.010015",
+      "density_veh_km2": 184.01270423798218,
+      "vehicle_count": 2
+    },
+    {
+      "type": "CONFLICTO_ESPACIAL",
+      "severity": "ALTA",
+      "frame": 261,
+      "timestamp": "2026-02-08T22:09:52.114210",
+      "distance_m": 0.816930295054647,
+      "vehicles_involved": 2
+    },
+    {
+      "type": "CONFLICTO_ESPACIAL",
+      "severity": "ALTA",
+      "frame": 273,
+      "timestamp": "2026-02-08T22:10:02.363146",
+      "distance_m": 0.8299703657143176,
+      "vehicles_involved": 2
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 300,
+      "timestamp": "2026-02-08T22:10:25.861141",
+      "density_veh_km2": 184.01270423798218,
+      "vehicle_count": 2
+    },
+    {
+      "type": "FRENADA_BRUSCA",
+      "severity": "MEDIA",
+      "frame": 301,
+      "timestamp": "2026-02-08T22:10:26.823418",
+      "tracker_id": 26,
+      "position": [
+        612.0194702148438,
+        642.4717407226562
+      ],
+      "vehicle_class": "motocicleta",
+      "acceleration_ms2": -7.1400937139765395,
+      "velocity_ms": 72.86826225073722
+    },
+    {
+      "type": "CONFLICTO_ESPACIAL",
+      "severity": "ALTA",
+      "frame": 307,
+      "timestamp": "2026-02-08T22:10:32.155190",
+      "distance_m": 1.6857648547878592,
+      "vehicles_involved": 2
+    },
+    {
+      "type": "CONFLICTO_ESPACIAL",
+      "severity": "ALTA",
+      "frame": 309,
+      "timestamp": "2026-02-08T22:10:33.901045",
+      "distance_m": 0.12523009260430346,
+      "vehicles_involved": 2
+    },
+    {
+      "type": "CONFLICTO_ESPACIAL",
+      "severity": "ALTA",
+      "frame": 315,
+      "timestamp": "2026-02-08T22:10:39.803283",
+      "distance_m": 0.021524830899577893,
+      "vehicles_involved": 2
+    },
+    {
+      "type": "FRENADA_BRUSCA",
+      "severity": "MEDIA",
+      "frame": 317,
+      "timestamp": "2026-02-08T22:10:41.641931",
+      "tracker_id": 27,
+      "position": [
+        586.9229736328125,
+        672.8834838867188
+      ],
+      "vehicle_class": "motocicleta",
+      "acceleration_ms2": -9.197247438604192,
+      "velocity_ms": 73.99153178765472
+    },
+    {
+      "type": "CONFLICTO_ESPACIAL",
+      "severity": "ALTA",
+      "frame": 325,
+      "timestamp": "2026-02-08T22:10:48.841926",
+      "distance_m": 0.3612933658165453,
+      "vehicles_involved": 2
+    },
+    {
+      "type": "FRENADA_BRUSCA",
+      "severity": "MEDIA",
+      "frame": 336,
+      "timestamp": "2026-02-08T22:10:58.600158",
+      "tracker_id": 34,
+      "position": [
+        667.6596401214599,
+        598.3645629882812
+      ],
+      "vehicle_class": "motocicleta",
+      "acceleration_ms2": -5.584925514993801,
+      "velocity_ms": 66.07182624656961
+    },
+    {
+      "type": "DENSIDAD_PELIGROSA",
+      "severity": "CRITICA",
+      "frame": 360,
+      "timestamp": "2026-02-08T22:11:18.938909",
+      "density_veh_km2": 184.01270423798218,
+      "vehicle_count": 2
+    },
+    {
+      "type": "FRENADA_BRUSCA",
+      "severity": "MEDIA",
+      "frame": 372,
+      "timestamp": "2026-02-08T22:11:29.234965",
+      "tracker_id": 50,
+      "position": [
+        1304.838191986084,
+        361.59893798828125
+      ],
+      "vehicle_class": "coche",
+      "acceleration_ms2": -7.449988527835949,
+      "velocity_ms": 20.365161867506732
     }
   ]
 }

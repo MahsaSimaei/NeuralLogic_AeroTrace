@@ -1,10 +1,4 @@
-"""
-BSV Blockchain Evidence Registry (Bridge Version)
-=================================================
-Este archivo conecta tu App con el sistema de Blockchain.
-Sincroniza los nombres de las funciones para evitar errores de 'AttributeError'.
-"""
-
+#BSV Blockchain Evidence Registry (Bridge Version)
 import hashlib
 import json
 import uuid
@@ -102,9 +96,7 @@ class BSVEvidenceRegistry:
         self.analysis_evidences.append(ev)
         return ev
 
-    # ---------------------------------------------------------
-    # 🔥 PUNTOS CLAVE DE CORRECCIÓN (Nombres compatibles)
-    # ---------------------------------------------------------
+    
 
     def create_blockchain_transaction(self, image_evidence: ImageEvidence, analysis_evidence: AnalysisEvidence, chain_stage: str = "processed") -> BlockchainTransaction:
         """

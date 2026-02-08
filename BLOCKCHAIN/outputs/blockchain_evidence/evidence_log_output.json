@@ -1,39 +1,364 @@
 {
   "scene_id": "output",
   "location": null,
-  "generated_at": "2026-02-08T20:54:40.421018Z",
+  "generated_at": "2026-02-08T21:11:52.995957Z",
   "statistics": {
-    "total_images_processed": 1,
+    "total_images_processed": 14,
     "total_analyses": 1,
-    "total_transactions": 1
+    "total_transactions": 14
   },
   "etl_chain": [
-    "be5ac2f4a30e482c869f79701465886c"
+    "ee5dfcb9cc15428292d3d0bf0530a3c4",
+    "dd6a9701e478495a85bf2f5d92ef2811",
+    "46db7f2726e44955b14bd53fb23a7c8a",
+    "787e1ffd96954272a435a5375a10cba8",
+    "8faa018b074d4b3eb8add0edc4493f1a",
+    "008d7fffe37e49b18f8ecf9da5ca087e",
+    "e84c4c77b24349d88d92df434f642ab6",
+    "fa0d5f75c3f84a568df94adc1ff4f704",
+    "b57de0b8d44b49969c1e2fcfe63791e7",
+    "fa0f5a7f2c3c45cf9a235372b6daec01",
+    "8c04889fc3604b20b255633c55a9db2e",
+    "fd0c12db5edb4d0c919d3a90683c8074",
+    "77b95489c9e646d7bee95ec80c59b5a1",
+    "0df086b075bb45788b46c38fff139c5c"
   ],
   "blockchain_transactions": [
     {
-      "transaction_id": "be5ac2f4a30e482c869f79701465886c",
-      "timestamp": "2026-02-08T20:54:40.421018Z",
+      "transaction_id": "ee5dfcb9cc15428292d3d0bf0530a3c4",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
       "scene_id": "output",
       "image_hash": "afe1ead7d8374cd55d5395c483553f4111add23e1604826f335ec72e747d26ad",
-      "metrics_hash": "d2eedf280ee4826716d24be171c92e11c8b2d1f58b10a6219d8ab5da6f2ace55",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
       "payload": {
         "metrics": {
-          "total_flow": 0,
-          "max_density": 57.10463694885298,
-          "total_incidents": 1
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
         },
-        "total_vehicles": 0,
-        "incident_count": 1
+        "total_vehicles": 2,
+        "incident_count": 15
       },
       "chain_stage": "processed_data",
       "previous_transaction_id": null
+    },
+    {
+      "transaction_id": "dd6a9701e478495a85bf2f5d92ef2811",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "f70368867303cc68f335df3f692439322187210b4e0917c7e75eb6ce69f19371",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "ee5dfcb9cc15428292d3d0bf0530a3c4"
+    },
+    {
+      "transaction_id": "46db7f2726e44955b14bd53fb23a7c8a",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "942d993d5c512318b271e0ebf128191caf32571e84b3fe235dd80c6e29e01cee",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "dd6a9701e478495a85bf2f5d92ef2811"
+    },
+    {
+      "transaction_id": "787e1ffd96954272a435a5375a10cba8",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "e09c9aa1abeef9a5c5141a7971ba209512966425e09a28009bf25817c3d96ed0",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "46db7f2726e44955b14bd53fb23a7c8a"
+    },
+    {
+      "transaction_id": "8faa018b074d4b3eb8add0edc4493f1a",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "8f852ee2c57f9b6cc8f1bb7138e316174494f99120ba14726c0a6dca5ec0dc80",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "787e1ffd96954272a435a5375a10cba8"
+    },
+    {
+      "transaction_id": "008d7fffe37e49b18f8ecf9da5ca087e",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "c0840d9be33f3d6ac05f09611e9e9480c42fb8923ac941a34ed1427493f6e73d",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "8faa018b074d4b3eb8add0edc4493f1a"
+    },
+    {
+      "transaction_id": "e84c4c77b24349d88d92df434f642ab6",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "048198aedbed957018bd22efd4dac4be19c68b39f90a97586cb43299106df3ff",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "008d7fffe37e49b18f8ecf9da5ca087e"
+    },
+    {
+      "transaction_id": "fa0d5f75c3f84a568df94adc1ff4f704",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "d9e60929e0844169c1036c81de20f8807f13fcc35ff487320fdb0a2362457253",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "e84c4c77b24349d88d92df434f642ab6"
+    },
+    {
+      "transaction_id": "b57de0b8d44b49969c1e2fcfe63791e7",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "15082e46c8b014a252b837cefb05fdc94136cb9997226aa68fbdf261dd524dbb",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "fa0d5f75c3f84a568df94adc1ff4f704"
+    },
+    {
+      "transaction_id": "fa0f5a7f2c3c45cf9a235372b6daec01",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "4525163c7ad1f8ccc4ecbe829b774cf58905977901b4f3275321c126603526bf",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "b57de0b8d44b49969c1e2fcfe63791e7"
+    },
+    {
+      "transaction_id": "8c04889fc3604b20b255633c55a9db2e",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "ad24b2eebe000840d8ddb99cfe4c2b7885c425405eb97bbfba9da68144e2ea13",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "fa0f5a7f2c3c45cf9a235372b6daec01"
+    },
+    {
+      "transaction_id": "fd0c12db5edb4d0c919d3a90683c8074",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "97ae539c9ce0c996ce9a81dae61ae81d96dc57e097070574ed6c2b4342dbd40e",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "8c04889fc3604b20b255633c55a9db2e"
+    },
+    {
+      "transaction_id": "77b95489c9e646d7bee95ec80c59b5a1",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "b97af56bedc305faa0cef35ca1915f8d3d8f35ebc410b991096d5d77be0c48a3",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "fd0c12db5edb4d0c919d3a90683c8074"
+    },
+    {
+      "transaction_id": "0df086b075bb45788b46c38fff139c5c",
+      "timestamp": "2026-02-08T21:11:52.995957Z",
+      "scene_id": "output",
+      "image_hash": "07be923d4bced7287e59cfe91dba329f61bf4c98cb7460dac0f2f746017f653d",
+      "metrics_hash": "679f9d45b665acc1b2634fe961fb5bb6002f3d2414245caabea07970cf328f0c",
+      "payload": {
+        "metrics": {
+          "total_flow": 2,
+          "max_density": 460.0317605949554,
+          "total_incidents": 15
+        },
+        "total_vehicles": 2,
+        "incident_count": 15
+      },
+      "chain_stage": "processed_data",
+      "previous_transaction_id": "77b95489c9e646d7bee95ec80c59b5a1"
     }
   ],
   "image_evidences": [
     {
       "image_hash": "afe1ead7d8374cd55d5395c483553f4111add23e1604826f335ec72e747d26ad",
-      "timestamp": "2026-02-08T20:54:23.405021Z",
+      "timestamp": "2026-02-08T21:06:07.119366Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "f70368867303cc68f335df3f692439322187210b4e0917c7e75eb6ce69f19371",
+      "timestamp": "2026-02-08T21:06:34.103059Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "942d993d5c512318b271e0ebf128191caf32571e84b3fe235dd80c6e29e01cee",
+      "timestamp": "2026-02-08T21:06:58.913166Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "e09c9aa1abeef9a5c5141a7971ba209512966425e09a28009bf25817c3d96ed0",
+      "timestamp": "2026-02-08T21:07:24.484703Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "8f852ee2c57f9b6cc8f1bb7138e316174494f99120ba14726c0a6dca5ec0dc80",
+      "timestamp": "2026-02-08T21:07:49.892358Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "c0840d9be33f3d6ac05f09611e9e9480c42fb8923ac941a34ed1427493f6e73d",
+      "timestamp": "2026-02-08T21:08:15.134332Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "048198aedbed957018bd22efd4dac4be19c68b39f90a97586cb43299106df3ff",
+      "timestamp": "2026-02-08T21:08:40.754557Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "d9e60929e0844169c1036c81de20f8807f13fcc35ff487320fdb0a2362457253",
+      "timestamp": "2026-02-08T21:09:07.297074Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "15082e46c8b014a252b837cefb05fdc94136cb9997226aa68fbdf261dd524dbb",
+      "timestamp": "2026-02-08T21:09:33.324373Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "4525163c7ad1f8ccc4ecbe829b774cf58905977901b4f3275321c126603526bf",
+      "timestamp": "2026-02-08T21:09:59.023320Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "ad24b2eebe000840d8ddb99cfe4c2b7885c425405eb97bbfba9da68144e2ea13",
+      "timestamp": "2026-02-08T21:10:25.017347Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "97ae539c9ce0c996ce9a81dae61ae81d96dc57e097070574ed6c2b4342dbd40e",
+      "timestamp": "2026-02-08T21:10:52.418133Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "b97af56bedc305faa0cef35ca1915f8d3d8f35ebc410b991096d5d77be0c48a3",
+      "timestamp": "2026-02-08T21:11:18.146769Z",
+      "scene_id": "output",
+      "location": null
+    },
+    {
+      "image_hash": "07be923d4bced7287e59cfe91dba329f61bf4c98cb7460dac0f2f746017f653d",
+      "timestamp": "2026-02-08T21:11:43.852070Z",
       "scene_id": "output",
       "location": null
     }
