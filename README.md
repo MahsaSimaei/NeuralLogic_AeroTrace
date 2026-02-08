@@ -102,7 +102,7 @@ Para garantizar la **auditabilidad** en contratos públicos y multas automatizad
 1.  **Clonar el repositorio:**
     ```bash
     git clone [https://github.com/MahsaSimaei/NeuralLogic_AeroTrace](https://github.com/MahsaSimaei/NeuralLogic_AeroTrace)
-    cd aerotrace-hackathon
+    cd C:\Repositorios\NeuralLogic_AeroTrace\BLOCKCHAIN
     ```
 
 2.  **Instalar dependencias:**
