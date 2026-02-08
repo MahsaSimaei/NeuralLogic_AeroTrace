@@ -1,7 +1,7 @@
 # 🚁 AeroTrace v2.0
 ## Sistema Inteligente de Análisis de Tráfico Rodado mediante Imágenes Aéreas
 
-> **Proyecto de Computación II** | **Hackathon Smart Cities & Blockchain** > **Equipo:** NeuralLogic  
+> **Hackathon NeuralHack Smart Cities & Blockchain** > **Equipo:** NeuralLogic  
 > **Miembro:** Mahsa Simaei  
 > **Fecha de entrega:** 08/02/2026
 
