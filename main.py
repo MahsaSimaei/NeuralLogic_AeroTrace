@@ -9,115 +9,208 @@ from plotly.subplots import make_subplots
 import glob
 import os
 from tqdm import tqdm
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Tuple, Optional, Callable
 from scipy.spatial import distance
 import json
 from datetime import datetime
+from pathlib import Path
+import re
 
 # =============================================================================
-# CONFIGURACIÓN OPTIMIZADA
+# CONFIGURACIÓN OPTIMIZADA CON INTEGRACIÓN DATASET UAV
 # =============================================================================
 
 @dataclass
 class Config:
-    """Configuración centralizada del sistema"""
+    """Configuración centralizada del sistema con soporte para dataset UAV"""
     
     # Directorios
     SOURCE_IMAGES_DIR: str = "data/frames"
     OUTPUT_DIR: str = "outputs"
-    MODEL_NAME: str = "yolov8x.pt"  # Modelo más preciso
-    MAX_FRAMES: int = 1500
+    MODEL_NAME: str = "yolov8x.pt" 
+    MAX_FRAMES: int = None  # None = procesar todos los frames
     
     # CALIBRACIÓN FÍSICA
     ALTURA_VUELO_M: float = 120.0
     FOV_HORIZONTAL_GRADOS: float = 84.0
     
-    # ZONA DE INTERÉS (ROI) - Excluye parking
-    ZONE_POLYGON = np.array([
-        [0, 1080],      # Inferior izquierda
-        [0, 360],       # Superior izquierda
-        [1920, 360],    # Superior derecha
-        [1920, 1080]    # Inferior derecha
-    ])
+    # ZONA DE INTERÉS (ROI) - Ajustable dinámicamente
+    ZONE_POLYGON: np.ndarray = field(default_factory=lambda: np.array([
+        [0, 1080],      
+        [0, 360],       
+        [1920, 360],    
+        [1920, 1080]    
+    ]))
+
+    # LÍNEA DE CONTEO - Ajustable desde Streamlit
+    LINE_START: sv.Point = field(default_factory=lambda: sv.Point(0, 700))
+    LINE_END: sv.Point = field(default_factory=lambda: sv.Point(1920, 700))
     
-    # SECTORES PARA ANÁLISIS DETALLADO
-    SECTORES = {
+    # SECTORES PARA ANÁLISIS DETALLADO (Rotondas, intersecciones)
+    SECTORES: Dict = field(default_factory=lambda: {
         'entrada_norte': np.array([[700, 360], [1200, 360], [1200, 600], [700, 600]]),
         'entrada_sur': np.array([[700, 800], [1200, 800], [1200, 1080], [700, 1080]]),
         'entrada_este': np.array([[1300, 600], [1920, 600], [1920, 800], [1300, 800]]),
         'entrada_oeste': np.array([[0, 600], [600, 600], [600, 800], [0, 800]]),
         'zona_central': np.array([[700, 600], [1200, 600], [1200, 800], [700, 800]])
-    }
+    })
     
-    # PARÁMETROS DE DETECCIÓN MEJORADOS
-    CONF_THRESHOLD: float = 0.20  # Bajado para capturar más motos
+    # PARÁMETROS DE DETECCIÓN OPTIMIZADOS PARA DATASET UAV
+    CONF_THRESHOLD: float = 0.25
     IOU_THRESHOLD: float = 0.45
-    IMGSZ: int = 1920  # Resolución completa
+    IMGSZ: int = 1280  # Balance entre velocidad y precisión
+    
+    # MAPEO DE CLASES YOLO → DATASET UAV
+    # Mantenemos compatibilidad con otras clases por si se usan modelos custom
+    CLASS_MAPPING: Dict = field(default_factory=lambda: {
+        0: 'persona',      # No relevante para tráfico vehicular
+        1: 'bicicleta',    # Útil para movilidad
+        2: 'coche',        # PRINCIPAL en dataset UAV
+        3: 'motocicleta',  # PRINCIPAL en dataset UAV
+        5: 'bus',          # Poco frecuente en dataset
+        7: 'camión'        # Poco frecuente en dataset
+    })
+    
+    
+    TARGET_CLASSES: List[int] = field(default_factory=lambda: [2, 3, 5, 7])  # coche , motocicleta , bus y camión
     
     # PARÁMETROS ESPECÍFICOS POR CLASE
-    CLASS_CONF_THRESHOLDS = {
-        1: 0.15,   # Bicis - umbral bajo
-        2: 0.25,   # Coches - umbral normal
-        3: 0.15,   # Motos - umbral bajo (crítico)
-        5: 0.30,   # Buses - umbral alto
-        7: 0.30    # Camiones - umbral alto
-    }
+    CLASS_CONF_THRESHOLDS: Dict = field(default_factory=lambda: {
+        1: 0.20,   # Bicis
+        2: 0.25,   # Coches (PRINCIPAL)
+        3: 0.20,   # Motos (PRINCIPAL)
+        5: 0.35,   # Buses (raros en dataset)
+        7: 0.35    # Camiones (raros en dataset)
+    })
     
-    # FILTROS DE TAMAÑO (píxeles)
-    CLASS_SIZE_LIMITS = {
-        1: (400, 8000),      # Bicis: pequeñas
-        2: (1000, 50000),    # Coches: medianas
-        3: (300, 6000),      # Motos: muy pequeñas (ajustado)
-        5: (4000, 100000),   # Buses: grandes
-        7: (3000, 80000)     # Camiones: grandes
-    }
+    # FILTROS DE TAMAÑO (píxeles) - Ajustados para vista aérea UAV
+    CLASS_SIZE_LIMITS: Dict = field(default_factory=lambda: {
+        1: (200, 5000),       # Bicis más pequeñas en vista aérea
+        2: (800, 40000),      # Coches: rango amplio por perspectiva
+        3: (200, 4000),       # Motos: muy variables en tamaño
+        5: (3000, 80000),     # Buses
+        7: (2500, 70000)      # Camiones
+    })
     
-    # FILTROS DE ASPECTO (W/H)
-    CLASS_ASPECT_RATIOS = {
-        1: (0.3, 1.2),   # Bicis: verticales o cuadradas
-        2: (0.5, 2.5),   # Coches: variado
-        3: (0.3, 2.0),   # Motos: delgadas (más permisivo)
-        5: (1.0, 3.5),   # Buses: horizontales
-        7: (1.0, 3.0)    # Camiones: horizontales
-    }
+    # FILTROS DE ASPECTO (W/H) - Más permisivos para vista cenital
+    CLASS_ASPECT_RATIOS: Dict = field(default_factory=lambda: {
+        1: (0.3, 1.5),   
+        2: (0.4, 3.0),   # Coches: más variación por ángulo
+        3: (0.3, 2.5),   # Motos: muy variable
+        5: (1.0, 4.0),   
+        7: (1.0, 3.5)    
+    })
     
-    # TRACKING MEJORADO
-    TRACK_THRESH: float = 0.15
-    TRACK_BUFFER: int = 150  # Frames de memoria
-    MATCH_THRESH: float = 0.90
+    # TRACKING OPTIMIZADO
+    TRACK_THRESH: float = 0.20  # Más permisivo para mantener IDs
+    TRACK_BUFFER: int = 180      # Buffer largo para oclusiones
+    MATCH_THRESH: float = 0.85   # Balance entre continuidad y precisión
     
-    # PARÁMETROS DE INCIDENTES
-    VELOCIDAD_MIN_MOVIMIENTO: float = 0.5  # m/s
-    TIEMPO_VEHICULO_DETENIDO: int = 120  # frames (~4s a 30fps)
-    UMBRAL_FRENADA_BRUSCA: float = 3.0  # m/s²
-    DISTANCIA_CONFLICTO: float = 4.0  # metros
-    UMBRAL_DENSIDAD_PELIGROSA: float = 50  # veh/km²
-    UMBRAL_DENSIDAD_CRITICA: float = 70  # veh/km²
+    # INCIDENTES
+    VELOCIDAD_MIN_MOVIMIENTO: float = 0.3  # m/s (muy lento en vista aérea)
+    TIEMPO_VEHICULO_DETENIDO: int = 90     # frames (~3 segundos a 30fps)
+    UMBRAL_FRENADA_BRUSCA: float = 2.5     # m/s² 
+    DISTANCIA_CONFLICTO: float = 3.5       # metros
+    UMBRAL_DENSIDAD_PELIGROSA: float = 45  # veh/km²
+    UMBRAL_DENSIDAD_CRITICA: float = 65    # veh/km²
     
     # ANÁLISIS TEMPORAL
-    VENTANA_TEMPORAL_FRAMES: int = 30  # 1 segundo a 30fps
-    VENTANA_ANALISIS_FRAMES: int = 300  # 10 segundos
+    VENTANA_TEMPORAL_FRAMES: int = 30 
+    VENTANA_ANALISIS_FRAMES: int = 300 
     
     def __post_init__(self):
-        """Post-inicialización"""
-        self.TARGET_CLASSES = [1, 2, 3, 5, 7]
-        self.CLASS_NAMES = {
-            1: 'Bicicleta', 
-            2: 'Turismo', 
-            3: 'Motocicleta', 
-            5: 'Bus', 
-            7: 'Camión'
-        }
-        
-        # Crear directorios
+        """Post-inicialización con mapeo de nombres"""
+        # Crear directorios de salida
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
         os.makedirs(os.path.join(self.OUTPUT_DIR, 'validation'), exist_ok=True)
         os.makedirs(os.path.join(self.OUTPUT_DIR, 'metrics'), exist_ok=True)
         os.makedirs(os.path.join(self.OUTPUT_DIR, 'incidents'), exist_ok=True)
         os.makedirs(os.path.join(self.OUTPUT_DIR, 'visualizations'), exist_ok=True)
+        os.makedirs(os.path.join(self.OUTPUT_DIR, 'reports'), exist_ok=True)
 
 CONFIG = Config()
+
+# =============================================================================
+# CARGADOR DE DATASET CON SCENES.CSV
+# =============================================================================
+
+class DatasetLoader:
+    """Cargador inteligente del dataset UAV con soporte para scenes.csv"""
+    
+    def __init__(self, scenes_csv_path: str = None):
+        self.scenes_df = None
+        if scenes_csv_path and os.path.exists(scenes_csv_path):
+            try:
+                self.scenes_df = pd.read_csv(scenes_csv_path)
+                print(f"✅ Loaded scenes.csv: {len(self.scenes_df)} scenes")
+                print(f"   Sequences: {', '.join(self.scenes_df['Sequence'].unique())}")
+            except Exception as e:
+                print(f"⚠️ Error loading scenes.csv: {e}")
+    
+    def get_scene_info(self, sequence_name: str) -> Dict:
+        """Obtiene información de una escena específica"""
+        if self.scenes_df is None:
+            return {'name': sequence_name, 'type': 'Unknown', 'lat': None, 'long': None}
+        
+        scene_row = self.scenes_df[self.scenes_df['Sequence'] == sequence_name]
+        if scene_row.empty:
+            return {'name': sequence_name, 'type': 'Unknown', 'lat': None, 'long': None}
+        
+        return {
+            'name': sequence_name,
+            'type': scene_row.iloc[0]['Scene name'],
+            'lat': scene_row.iloc[0]['lat'],
+            'long': scene_row.iloc[0]['long']
+        }
+    
+    def list_available_scenes(self) -> List[str]:
+        """Lista todas las escenas disponibles"""
+        if self.scenes_df is None:
+            return []
+        return self.scenes_df['Sequence'].tolist()
+    
+    @staticmethod
+    def smart_sort_files(file_list: List[str]) -> List[str]:
+        """
+        Ordenamiento inteligente de archivos usando números naturales.
+        Soporta formatos: frame_1.jpg, img_0001.png, 0000.jpg, etc.
+        """
+        def extract_number(filename: str) -> int:
+            """Extrae el primer número significativo del nombre"""
+            basename = os.path.basename(filename)
+            # Buscar todos los números en el nombre
+            numbers = re.findall(r'\d+', basename)
+            if numbers:
+                # Usar el número más largo (generalmente el índice del frame)
+                return int(max(numbers, key=len))
+            return 0
+        
+        try:
+            sorted_files = sorted(file_list, key=extract_number)
+            print(f"📁 Sorted {len(sorted_files)} files")
+            if len(sorted_files) > 0:
+                print(f"   First: {os.path.basename(sorted_files[0])}")
+                print(f"   Last: {os.path.basename(sorted_files[-1])}")
+            return sorted_files
+        except Exception as e:
+            print(f"⚠️ Error sorting files: {e}, using default sort")
+            return sorted(file_list)
+    
+    @staticmethod
+    def validate_image_file(filepath: str) -> bool:
+        """Valida que un archivo sea una imagen válida"""
+        try:
+            img = cv2.imread(filepath)
+            if img is None:
+                return False
+            h, w = img.shape[:2]
+            # Verificar dimensiones mínimas
+            if h < 100 or w < 100:
+                return False
+            return True
+        except:
+            return False
 
 # =============================================================================
 # SISTEMA DE CALIBRACIÓN Y MÉTRICAS
@@ -127,178 +220,103 @@ class TrafficEngineer:
     """Cálculo avanzado de métricas de ingeniería de tráfico"""
     
     def __init__(self, image_width_px: int, image_height_px: int):
-        # 1. CÁLCULO TRIGONOMÉTRICO 
-        # Convertir FOV a radianes
+        # Calibración física basada en altura de vuelo y FOV
         fov_rad = np.radians(CONFIG.FOV_HORIZONTAL_GRADOS)
-        
-        # Calcular el ancho real del terreno visible (Trigonometría básica de cámara)
-        # Ancho = 2 * Altura_Vuelo * tan(FOV / 2)
         ancho_terreno_m = 2 * CONFIG.ALTURA_VUELO_M * np.tan(fov_rad / 2)
-        
-        # Calcular alto proporcional
         alto_terreno_m = ancho_terreno_m * (image_height_px / image_width_px)
-        
-        # 2. CÁLCULO DEL GSD (Ground Sample Distance)
         self.gsd = ancho_terreno_m / image_width_px
         
-        # Información del sistema en consola
         print(f"🔧 CALIBRACIÓN DEL SISTEMA")
-        print(f"   - Resolución: {image_width_px}x{image_height_px} px")
         print(f"   - GSD (Ground Sample Distance): {self.gsd:.4f} m/px")
-        print(f"   - Área de cobertura: {ancho_terreno_m:.1f} x {alto_terreno_m:.1f} m")
+        print(f"   - Área total visible: {ancho_terreno_m:.1f}m x {alto_terreno_m:.1f}m")
         
-        # 3. MATRIZ DE HOMOGRAFÍA (Ajuste de perspectiva)
-        # Define 4 puntos en la imagen (esquinas)
-        src_points = np.float32([
-            [0, 0], 
-            [image_width_px, 0], 
-            [0, image_height_px], 
-            [image_width_px, image_height_px]
-        ])
-        
-        # Define las coordenadas reales correspondientes en metros (Top-Down View)
-        dst_points = np.float32([
-            [0, 0], 
-            [ancho_terreno_m, 0], 
-            [0, alto_terreno_m], 
-            [ancho_terreno_m, alto_terreno_m]
-        ])
-        
+        # Matriz de homografía para transformaciones
+        src_points = np.float32([[0, 0], [image_width_px, 0], [0, image_height_px], [image_width_px, image_height_px]])
+        dst_points = np.float32([[0, 0], [ancho_terreno_m, 0], [0, alto_terreno_m], [ancho_terreno_m, alto_terreno_m]])
         self.homography_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
 
-        # 4. UMBRALES DE DENSIDAD (HCM 2010)
+        # Thresholds de Nivel de Servicio (HCM 2010)
         self.los_thresholds = {
-            'A': (0, 14),      # Flujo libre
-            'B': (14, 22),     # Flujo razonablemente libre
-            'C': (22, 32),     # Flujo estable
-            'D': (32, 45),     # Flujo aproximándose a inestable
-            'E': (45, 67),     # Flujo inestable
-            'F': (67, float('inf'))  # Flujo forzado
+            'A': (0, 14),     # Flujo libre
+            'B': (14, 22),    # Flujo razonablemente libre
+            'C': (22, 32),    # Flujo estable
+            'D': (32, 45),    # Flujo inestable
+            'E': (45, 67),    # Flujo forzado
+            'F': (67, float('inf'))  # Colapso
         }
 
-    def pixel_to_world(self, px: float, py: float) -> Tuple[float, float]:
-        """Transforma coordenadas de píxel a coordenadas métricas reales usando Homografía"""
-        # Esta función usa la matriz para corregir perspectiva si la hubiera
-        point = np.array([[[px, py]]], dtype=np.float32)
-        transformed = cv2.perspectiveTransform(point, self.homography_matrix)
-        return transformed[0][0][0], transformed[0][0][1]
-
-    def get_real_coords(self, px: float, py: float) -> Tuple[float, float]:
-        """Transforma píxeles a metros reales usando GSD simple (Alternativa rápida)"""
-        real_x = px * self.gsd
-        real_y = py * self.gsd
-        return real_x, real_y
-    
     def pixel_to_meters(self, px_distance: float) -> float:
         """Convierte distancia en píxeles a metros"""
         return px_distance * self.gsd
     
     def area_px_to_m2(self, area_px: float) -> float:
-        """Convierte área de píxeles a metros cuadrados"""
+        """Convierte área en píxeles cuadrados a metros cuadrados"""
         return area_px * (self.gsd ** 2)
     
     def calculate_density(self, vehicle_count: int, area_m2: float) -> float:
         """
-        Calcula densidad de tráfico
-        Densidad (K) = vehículos / área (veh/km²)
+        Calcula densidad de tráfico (vehículos por km²)
+        Fórmula: ρ = N / A * 1,000,000
         """
-        if area_m2 == 0:
+        if area_m2 == 0: 
             return 0.0
-        density = (vehicle_count / area_m2) * 1_000_000  # veh/km²
-        return density
+        return (vehicle_count / area_m2) * 1_000_000 
     
     def calculate_level_of_service(self, density: float) -> Tuple[str, str]:
         """
-        Determina el nivel de servicio (LOS) según HCM
-        Retorna: (letra, descripción)
+        Determina el Nivel de Servicio (Level of Service) basado en HCM
         """
         for los, (min_d, max_d) in self.los_thresholds.items():
             if min_d <= density < max_d:
                 descriptions = {
-                    'A': 'Libre',
-                    'B': 'Estable',
-                    'C': 'Limitado',
-                    'D': 'Denso',
-                    'E': 'Saturado',
+                    'A': 'Libre', 
+                    'B': 'Estable', 
+                    'C': 'Limitado', 
+                    'D': 'Denso', 
+                    'E': 'Saturado', 
                     'F': 'Colapso'
                 }
                 return los, descriptions[los]
         return 'F', 'Colapso'
     
-    def calculate_occupancy(self, vehicle_count: int, max_capacity: int) -> float:
-        """
-        Calcula tasa de ocupación
-        Ocupación = (vehículos / capacidad_máxima) * 100
-        """
-        if max_capacity == 0:
+    def calculate_occupancy_rate(self, occupied_area_m2: float, total_area_m2: float) -> float:
+        """Calcula porcentaje de ocupación del espacio vial"""
+        if total_area_m2 == 0:
             return 0.0
-        return (vehicle_count / max_capacity) * 100
-    
-    def estimate_speed_from_trajectory(self, positions: List[np.ndarray], 
-                                       timestamps: List[float]) -> Optional[float]:
-        """
-        Estima velocidad promedio a partir de trayectoria
-        Velocidad = distancia_total / tiempo_total (m/s)
-        """
-        if len(positions) < 2:
-            return None
-        
-        total_distance_m = 0
-        for i in range(1, len(positions)):
-            dist_px = np.linalg.norm(positions[i] - positions[i-1])
-            total_distance_m += self.pixel_to_meters(dist_px)
-        
-        total_time = timestamps[-1] - timestamps[0]
-        if total_time == 0:
-            return None
-        
-        return total_distance_m / total_time
+        return (occupied_area_m2 / total_area_m2) * 100
 
 # =============================================================================
-# SISTEMA DE TRACKING AVANZADO
+# SISTEMA DE TRACKING AVANZADO CON CINEMÁTICA
 # =============================================================================
 
 class VehicleTracker:
     """Seguimiento temporal de vehículos con análisis cinemático"""
     
     def __init__(self, gsd: float):
-        self.gsd = gsd
-        self.history: Dict[int, deque] = defaultdict(
-            lambda: deque(maxlen=CONFIG.VENTANA_ANALISIS_FRAMES)
-        )
+        self.gsd = gsd  # Ground Sample Distance para conversión px→m
+        self.history: Dict[int, deque] = defaultdict(lambda: deque(maxlen=CONFIG.VENTANA_ANALISIS_FRAMES))
         self.stopped_counters: Dict[int, int] = defaultdict(int)
-        self.first_detection: Dict[int, int] = {}
-        self.last_detection: Dict[int, int] = {}
-        self.vehicle_classes: Dict[int, int] = {}
     
-    def update(self, tracker_id: int, position: np.ndarray, 
-               frame_idx: int, class_id: int):
-        """Actualiza historial de vehículo"""
+    def update(self, tracker_id: int, position: np.ndarray, frame_idx: int, class_id: int):
+        """Actualiza historial de posiciones de un vehículo"""
         self.history[tracker_id].append({
             'frame': frame_idx,
             'position': position,
-            'timestamp': frame_idx / 30.0,  # Asumiendo 30 fps
+            'timestamp': frame_idx / 30.0,  # Asumiendo 30 FPS
             'class_id': class_id
         })
-        
-        if tracker_id not in self.first_detection:
-            self.first_detection[tracker_id] = frame_idx
-        self.last_detection[tracker_id] = frame_idx
-        self.vehicle_classes[tracker_id] = class_id
     
     def get_velocity(self, tracker_id: int, window_frames: int = 10) -> float:
         """
-        Calcula velocidad instantánea
-        Usa ventana de frames para suavizar
+        Calcula velocidad instantánea (m/s) usando ventana móvil
         """
-        if tracker_id not in self.history:
+        if tracker_id not in self.history: 
             return 0.0
         
         hist = list(self.history[tracker_id])
-        if len(hist) < window_frames:
+        if len(hist) < window_frames: 
             window_frames = len(hist)
-        
-        if window_frames < 2:
+        if window_frames < 2: 
             return 0.0
         
         p_start = hist[-window_frames]['position']
@@ -307,59 +325,38 @@ class VehicleTracker:
         t_end = hist[-1]['timestamp']
         
         dt = t_end - t_start
-        if dt == 0:
+        if dt == 0: 
             return 0.0
         
-        dist_px = np.linalg.norm(p_end - p_start)
-        dist_m = dist_px * self.gsd
-        
+        dist_m = np.linalg.norm(p_end - p_start) * self.gsd
         return dist_m / dt  # m/s
     
     def get_acceleration(self, tracker_id: int) -> float:
-        """Calcula aceleración (m/s²)"""
-        if tracker_id not in self.history:
+        """
+        Calcula aceleración (m/s²) comparando dos ventanas de velocidad
+        """
+        if tracker_id not in self.history: 
             return 0.0
         
         hist = list(self.history[tracker_id])
-        if len(hist) < 20:
+        if len(hist) < 20: 
             return 0.0
         
-        # Velocidad hace 15 frames
-        window = 5
-        p1 = hist[-20]['position']
-        p2 = hist[-15]['position']
-        t1 = hist[-20]['timestamp']
-        t2 = hist[-15]['timestamp']
-        dt1 = t2 - t1
+        # Velocidad en ventana antigua
+        p1, t1 = hist[-20]['position'], hist[-20]['timestamp']
+        p2, t2 = hist[-15]['position'], hist[-15]['timestamp']
+        v1 = (np.linalg.norm(p2 - p1) * self.gsd) / (t2 - t1) if (t2 - t1) > 0 else 0
         
-        if dt1 == 0:
-            return 0.0
+        # Velocidad en ventana reciente
+        p3, t3 = hist[-5]['position'], hist[-5]['timestamp']
+        p4, t4 = hist[-1]['position'], hist[-1]['timestamp']
+        v2 = (np.linalg.norm(p4 - p3) * self.gsd) / (t4 - t3) if (t4 - t3) > 0 else 0
         
-        dist1_m = np.linalg.norm(p2 - p1) * self.gsd
-        v1 = dist1_m / dt1
-        
-        # Velocidad actual
-        p3 = hist[-window]['position']
-        p4 = hist[-1]['position']
-        t3 = hist[-window]['timestamp']
-        t4 = hist[-1]['timestamp']
-        dt2 = t4 - t3
-        
-        if dt2 == 0:
-            return 0.0
-        
-        dist2_m = np.linalg.norm(p4 - p3) * self.gsd
-        v2 = dist2_m / dt2
-        
-        # Aceleración
         dt_total = t4 - t1
-        if dt_total == 0:
-            return 0.0
-        
-        return (v2 - v1) / dt_total
+        return (v2 - v1) / dt_total if dt_total > 0 else 0
     
     def get_trajectory_length(self, tracker_id: int) -> float:
-        """Calcula longitud total de trayectoria en metros"""
+        """Calcula longitud total de trayectoria (metros)"""
         if tracker_id not in self.history:
             return 0.0
         
@@ -367,1313 +364,937 @@ class VehicleTracker:
         if len(hist) < 2:
             return 0.0
         
-        total_dist_m = 0
+        total_distance = 0.0
         for i in range(1, len(hist)):
-            dist_px = np.linalg.norm(hist[i]['position'] - hist[i-1]['position'])
-            total_dist_m += dist_px * self.gsd
+            p1 = hist[i-1]['position']
+            p2 = hist[i]['position']
+            dist_px = np.linalg.norm(p2 - p1)
+            total_distance += dist_px * self.gsd
         
-        return total_dist_m
-    
-    def get_dwell_time(self, tracker_id: int) -> float:
-        """Tiempo de permanencia en la escena (segundos)"""
-        if tracker_id not in self.first_detection:
-            return 0.0
-        
-        frames = self.last_detection[tracker_id] - self.first_detection[tracker_id]
-        return frames / 30.0  # Asumiendo 30 fps
+        return total_distance
 
 # =============================================================================
-# DETECTOR DE INCIDENTES
+# DETECTOR DE INCIDENTES CRÍTICOS
 # =============================================================================
 
 class IncidentDetector:
-    """Sistema avanzado de detección de incidentes de seguridad vial"""
+    """Detección avanzada de incidentes y situaciones de riesgo"""
     
     def __init__(self, gsd: float):
         self.gsd = gsd
         self.incidents: List[Dict] = []
-        self.incident_counters = defaultdict(int)
+        self.incident_counters = defaultdict(int)  # Evita duplicados
         
-    def detect_stopped_vehicle(self, tracker_id: int, velocity: float, 
-                               stopped_counter: int, position: np.ndarray, 
-                               frame_idx: int, class_id: int) -> bool:
-        """Detecta vehículos anormalmente detenidos"""
+    def detect_stopped_vehicle(self, tracker_id: int, velocity: float, stopped_counter: int, 
+                               position: np.ndarray, frame_idx: int, class_id: int) -> bool:
+        """Detecta vehículo detenido prolongadamente"""
         if velocity < CONFIG.VELOCIDAD_MIN_MOVIMIENTO:
             if stopped_counter >= CONFIG.TIEMPO_VEHICULO_DETENIDO:
-                # Solo registrar una vez por vehículo
                 incident_key = f"stopped_{tracker_id}"
                 if self.incident_counters[incident_key] == 0:
-                    incident = {
-                        'type': 'VEHICULO_DETENIDO',
-                        'severity': 'ALTA',
-                        'tracker_id': int(tracker_id),
-                        'frame': int(frame_idx),
-                        'position': position.tolist(),
-                        'duration_seconds': float(stopped_counter / 30.0),
-                        'vehicle_class': CONFIG.CLASS_NAMES.get(class_id, 'Desconocido'),
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    self.incidents.append(incident)
+                    self._add_incident(
+                        'VEHICULO_DETENIDO', 
+                        'ALTA', 
+                        tracker_id, 
+                        frame_idx, 
+                        position, 
+                        class_id,
+                        details={'stopped_frames': stopped_counter, 'velocity_ms': velocity}
+                    )
                     self.incident_counters[incident_key] = 1
                     return True
         else:
-            # Reset si el vehículo vuelve a moverse
-            incident_key = f"stopped_{tracker_id}"
-            self.incident_counters[incident_key] = 0
-        
+            # Reset si el vehículo se mueve
+            self.incident_counters[f"stopped_{tracker_id}"] = 0
         return False
     
-    def detect_harsh_braking(self, tracker_id: int, acceleration: float, 
-                            position: np.ndarray, frame_idx: int, 
-                            class_id: int, velocity: float) -> bool:
-        """Detecta frenadas bruscas"""
-        if acceleration < -CONFIG.UMBRAL_FRENADA_BRUSCA and velocity > 2.0:
-            incident_key = f"braking_{tracker_id}_{frame_idx//30}"  # Una por segundo
+    def detect_harsh_braking(self, tracker_id: int, acceleration: float, position: np.ndarray, 
+                            frame_idx: int, class_id: int, velocity: float) -> bool:
+        """Detecta frenada brusca (aceleración negativa pronunciada)"""
+        if acceleration < -CONFIG.UMBRAL_FRENADA_BRUSCA and velocity > 1.0:
+            incident_key = f"braking_{tracker_id}_{frame_idx//30}"  # 1 por segundo
             if self.incident_counters[incident_key] == 0:
-                incident = {
-                    'type': 'FRENADA_BRUSCA',
-                    'severity': 'MEDIA',
-                    'tracker_id': int(tracker_id),
-                    'frame': int(frame_idx),
-                    'position': position.tolist(),
-                    'acceleration_m_s2': float(acceleration),
-                    'velocity_m_s': float(velocity),
-                    'vehicle_class': CONFIG.CLASS_NAMES.get(class_id, 'Desconocido'),
-                    'timestamp': datetime.now().isoformat()
-                }
-                self.incidents.append(incident)
+                self._add_incident(
+                    'FRENADA_BRUSCA', 
+                    'MEDIA', 
+                    tracker_id, 
+                    frame_idx, 
+                    position, 
+                    class_id, 
+                    details={'acceleration_ms2': acceleration, 'velocity_ms': velocity}
+                )
                 self.incident_counters[incident_key] = 1
                 return True
-        
         return False
     
     def detect_conflicts(self, detections: sv.Detections, frame_idx: int) -> List[Dict]:
-        """Detecta conflictos espaciales (vehículos peligrosamente cercanos)"""
+        """Detecta conflictos espaciales (vehículos muy cercanos)"""
         conflicts = []
-        
-        if len(detections) < 2:
+        if len(detections) < 2: 
             return conflicts
         
-        # Calcular centros
-        centers = []
-        for xyxy in detections.xyxy:
-            cx = (xyxy[0] + xyxy[2]) / 2
-            cy = (xyxy[1] + xyxy[3]) / 2
-            centers.append([cx, cy])
-        
-        centers = np.array(centers)
-        
-        # Matriz de distancias
+        centers = detections.get_anchors_coordinates(anchor=sv.Position.CENTER)
         dist_matrix = distance.cdist(centers, centers, 'euclidean')
         
-        # Detectar pares cercanos
         for i in range(len(dist_matrix)):
             for j in range(i + 1, len(dist_matrix)):
-                dist_px = dist_matrix[i][j]
-                dist_m = dist_px * self.gsd
-                
+                dist_m = dist_matrix[i][j] * self.gsd
                 if dist_m < CONFIG.DISTANCIA_CONFLICTO:
                     conflict_key = f"conflict_{min(i,j)}_{max(i,j)}_{frame_idx//15}"
                     if self.incident_counters[conflict_key] == 0:
-                        incident = {
-                            'type': 'CONFLICTO_ESPACIAL',
-                            'severity': 'ALTA',
-                            'frame': int(frame_idx),
-                            'distance_m': float(dist_m),
-                            'vehicle_indices': [int(i), int(j)],
-                            'positions': [centers[i].tolist(), centers[j].tolist()],
-                            'timestamp': datetime.now().isoformat()
-                        }
-                        conflicts.append(incident)
+                        incident = self._create_incident_dict('CONFLICTO_ESPACIAL', 'ALTA', frame_idx)
+                        incident['distance_m'] = float(dist_m)
+                        incident['vehicles_involved'] = 2
                         self.incidents.append(incident)
+                        conflicts.append(incident)
                         self.incident_counters[conflict_key] = 1
         
         return conflicts
     
-    def detect_dangerous_density(self, density: float, frame_idx: int, 
-                                 vehicle_count: int) -> Optional[Dict]:
-        """Detecta niveles de densidad peligrosos"""
+    def detect_dangerous_density(self, density: float, frame_idx: int, vehicle_count: int):
+        """Detecta densidad peligrosa de tráfico"""
+        severity = None
         if density > CONFIG.UMBRAL_DENSIDAD_CRITICA:
             severity = 'CRITICA'
         elif density > CONFIG.UMBRAL_DENSIDAD_PELIGROSA:
             severity = 'ALTA'
-        else:
-            return None
         
-        # Solo registrar cada 60 frames (2 segundos)
-        incident_key = f"density_{frame_idx//60}"
-        if self.incident_counters[incident_key] == 0:
-            incident = {
-                'type': 'DENSIDAD_PELIGROSA',
-                'severity': severity,
-                'frame': int(frame_idx),
-                'density_veh_km2': float(density),
-                'vehicle_count': int(vehicle_count),
-                'timestamp': datetime.now().isoformat()
-            }
-            self.incidents.append(incident)
-            self.incident_counters[incident_key] = 1
-            return incident
-        
-        return None
-    
+        if severity:
+            incident_key = f"density_{frame_idx//60}"  # Cada 2 segundos
+            if self.incident_counters[incident_key] == 0:
+                incident = self._create_incident_dict('DENSIDAD_PELIGROSA', severity, frame_idx)
+                incident['density_veh_km2'] = float(density)
+                incident['vehicle_count'] = vehicle_count
+                self.incidents.append(incident)
+                self.incident_counters[incident_key] = 1
+
+    def _add_incident(self, incident_type: str, severity: str, tracker_id: int, 
+                     frame: int, pos: np.ndarray, class_id: int, details: Dict = None):
+        """Añade incidente con información completa"""
+        inc = self._create_incident_dict(incident_type, severity, frame)
+        inc['tracker_id'] = int(tracker_id)
+        inc['position'] = pos.tolist()
+        inc['vehicle_class'] = CONFIG.CLASS_MAPPING.get(class_id, 'Desconocido')
+        if details:
+            inc.update(details)
+        self.incidents.append(inc)
+
+    def _create_incident_dict(self, incident_type: str, severity: str, frame: int) -> Dict:
+        """Crea diccionario base de incidente"""
+        return {
+            'type': incident_type, 
+            'severity': severity, 
+            'frame': int(frame), 
+            'timestamp': datetime.now().isoformat()
+        }
+
     def get_incident_summary(self) -> Dict:
-        """Genera resumen de incidentes"""
+        """Genera resumen estadístico de incidentes"""
         summary = {
-            'total': len(self.incidents),
-            'by_type': defaultdict(int),
+            'total': len(self.incidents), 
+            'by_type': defaultdict(int), 
             'by_severity': defaultdict(int)
         }
-        
         for incident in self.incidents:
             summary['by_type'][incident['type']] += 1
             summary['by_severity'][incident['severity']] += 1
-        
-        return {
-            'total': summary['total'],
-            'by_type': dict(summary['by_type']),
-            'by_severity': dict(summary['by_severity'])
-        }
-
-# =============================================================================
-# SISTEMA DE VALIDACIÓN
-# =============================================================================
-
-class ValidationMetrics:
-    """Métricas de precisión y validación del modelo"""
+        return dict(summary)
     
-    def __init__(self):
-        self.detections_per_class = defaultdict(int)
-        self.confidence_per_class = defaultdict(list)
-        self.size_per_class = defaultdict(list)
-        self.aspect_ratio_per_class = defaultdict(list)
-        self.false_positive_candidates = []
-        
-    def update(self, detections: sv.Detections):
-        """Registra detecciones para análisis"""
-        for xyxy, class_id, conf in zip(detections.xyxy, 
-                                        detections.class_id, 
-                                        detections.confidence):
-            self.detections_per_class[class_id] += 1
-            self.confidence_per_class[class_id].append(float(conf))
-            
-            # Calcular tamaño
-            w = xyxy[2] - xyxy[0]
-            h = xyxy[3] - xyxy[1]
-            area = w * h
-            self.size_per_class[class_id].append(float(area))
-            
-            # Calcular aspect ratio
-            if h > 0:
-                ar = w / h
-                self.aspect_ratio_per_class[class_id].append(float(ar))
-            
-            # Detectar posibles falsos positivos
-            if conf < 0.30:
-                self.false_positive_candidates.append({
-                    'class_id': int(class_id),
-                    'confidence': float(conf),
-                    'bbox': xyxy.tolist()
-                })
-    
-    def generate_report(self) -> Dict:
-        """Genera reporte completo de validación"""
-        report = {
-            'summary': {
-                'total_detections': sum(self.detections_per_class.values()),
-                'unique_classes_detected': len(self.detections_per_class),
-                'potential_false_positives': len(self.false_positive_candidates)
-            },
-            'by_class': {},
-            'class_distribution': {}
-        }
-        
-        total = sum(self.detections_per_class.values())
-        
-        for class_id, count in self.detections_per_class.items():
-            class_name = CONFIG.CLASS_NAMES.get(class_id, f'Class_{class_id}')
-            confs = self.confidence_per_class[class_id]
-            sizes = self.size_per_class[class_id]
-            ars = self.aspect_ratio_per_class[class_id]
-            
-            report['by_class'][class_name] = {
-                'count': int(count),
-                'percentage': float(count / total * 100) if total > 0 else 0,
-                'confidence': {
-                    'mean': float(np.mean(confs)),
-                    'std': float(np.std(confs)),
-                    'min': float(np.min(confs)),
-                    'max': float(np.max(confs)),
-                    'median': float(np.median(confs))
-                },
-                'size_px2': {
-                    'mean': float(np.mean(sizes)),
-                    'std': float(np.std(sizes)),
-                    'min': float(np.min(sizes)),
-                    'max': float(np.max(sizes))
-                },
-                'aspect_ratio': {
-                    'mean': float(np.mean(ars)) if ars else 0,
-                    'std': float(np.std(ars)) if ars else 0
-                }
-            }
-            
-            report['class_distribution'][class_name] = int(count)
-        
-        return report
+    def export_incidents_json(self, output_path: str):
+        """Exporta incidentes a JSON estructurado"""
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'summary': self.get_incident_summary(),
+                    'incidents': self.incidents
+                }, f, indent=2, ensure_ascii=False)
+            print(f"✅ Incidentes exportados: {output_path}")
+        except Exception as e:
+            print(f"❌ Error exportando incidentes: {e}")
 
 # =============================================================================
-# FILTROS AVANZADOS DE DETECCIÓN
+# FILTROS DE DETECCIÓN
 # =============================================================================
 
 class DetectionFilter:
-    """Sistema de filtrado multi-criterio para mejorar precisión"""
+    """Filtros avanzados para mejorar precisión de detecciones"""
     
     @staticmethod
     def filter_by_confidence(detections: sv.Detections) -> sv.Detections:
-        """Filtra por umbrales de confianza específicos por clase"""
-        if len(detections) == 0:
+        """Aplica thresholds de confianza específicos por clase"""
+        if len(detections) == 0: 
             return detections
         
         valid_indices = []
-        for idx, (class_id, conf) in enumerate(zip(detections.class_id, 
-                                                   detections.confidence)):
+        for i, (class_id, conf) in enumerate(zip(detections.class_id, detections.confidence)):
             threshold = CONFIG.CLASS_CONF_THRESHOLDS.get(class_id, CONFIG.CONF_THRESHOLD)
             if conf >= threshold:
-                valid_indices.append(idx)
+                valid_indices.append(i)
         
-        if len(valid_indices) == 0:
+        if not valid_indices: 
             return sv.Detections.empty()
         
         return detections[valid_indices]
     
     @staticmethod
     def filter_by_size(detections: sv.Detections) -> sv.Detections:
-        """Filtra por tamaño razonable según clase"""
+        """Filtra por tamaño de bounding box"""
         if len(detections) == 0:
             return detections
         
         valid_indices = []
-        for idx, (xyxy, class_id) in enumerate(zip(detections.xyxy, 
-                                                   detections.class_id)):
-            w = xyxy[2] - xyxy[0]
-            h = xyxy[3] - xyxy[1]
-            area = w * h
+        for i, (xyxy, class_id) in enumerate(zip(detections.xyxy, detections.class_id)):
+            width = xyxy[2] - xyxy[0]
+            height = xyxy[3] - xyxy[1]
+            area = width * height
             
             if class_id in CONFIG.CLASS_SIZE_LIMITS:
-                min_size, max_size = CONFIG.CLASS_SIZE_LIMITS[class_id]
-                if min_size <= area <= max_size:
-                    valid_indices.append(idx)
+                min_area, max_area = CONFIG.CLASS_SIZE_LIMITS[class_id]
+                if min_area <= area <= max_area:
+                    valid_indices.append(i)
             else:
-                valid_indices.append(idx)
+                valid_indices.append(i)
         
-        if len(valid_indices) == 0:
+        if not valid_indices:
             return sv.Detections.empty()
         
         return detections[valid_indices]
     
     @staticmethod
     def filter_by_aspect_ratio(detections: sv.Detections) -> sv.Detections:
-        """Filtra por relación de aspecto esperada"""
+        """Filtra por relación de aspecto"""
         if len(detections) == 0:
             return detections
         
         valid_indices = []
-        for idx, (xyxy, class_id) in enumerate(zip(detections.xyxy, 
-                                                   detections.class_id)):
-            w = xyxy[2] - xyxy[0]
-            h = xyxy[3] - xyxy[1]
+        for i, (xyxy, class_id) in enumerate(zip(detections.xyxy, detections.class_id)):
+            width = xyxy[2] - xyxy[0]
+            height = xyxy[3] - xyxy[1]
             
-            if h == 0:
+            if height == 0:
                 continue
             
-            ar = w / h
+            aspect_ratio = width / height
             
             if class_id in CONFIG.CLASS_ASPECT_RATIOS:
                 min_ar, max_ar = CONFIG.CLASS_ASPECT_RATIOS[class_id]
-                if min_ar <= ar <= max_ar:
-                    valid_indices.append(idx)
+                if min_ar <= aspect_ratio <= max_ar:
+                    valid_indices.append(i)
             else:
-                valid_indices.append(idx)
+                valid_indices.append(i)
         
-        if len(valid_indices) == 0:
+        if not valid_indices:
             return sv.Detections.empty()
         
         return detections[valid_indices]
     
     @staticmethod
     def apply_all_filters(detections: sv.Detections) -> sv.Detections:
-        """Aplica todos los filtros en secuencia"""
+        """Aplica todos los filtros en cascada"""
         detections = DetectionFilter.filter_by_confidence(detections)
         detections = DetectionFilter.filter_by_size(detections)
         detections = DetectionFilter.filter_by_aspect_ratio(detections)
         return detections
 
+
+# Clase auxiliar para convertir números de NumPy a nativos de Python
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
+
 # =============================================================================
-# GENERADOR DE DASHBOARD AVANZADO
+# GENERADOR DE DASHBOARD INTERACTIVO
 # =============================================================================
 
 class DashboardGenerator:
-    """Genera dashboard interactivo completo"""
+    """Generador de dashboard HTML interactivo con Plotly"""
     
     @staticmethod
-    def create_advanced_dashboard(df: pd.DataFrame, 
-                                 incidents: List[Dict],
-                                 validation_report: Dict,
-                                 sector_data: Dict,
-                                 output_path: str):
-        """Crea dashboard con todas las visualizaciones"""
+    def create_advanced_dashboard(df: pd.DataFrame, incidents: List[Dict], 
+                                  validation_report: Dict, sector_data: Dict, 
+                                  output_path: str, scene_info: Dict = None):
+        """
+        Crea dashboard completo con múltiples visualizaciones
+        """
+        print("📊 Generando Dashboard Interactivo...")
         
-        print("📊 Generando Dashboard Avanzado...")
-        
-        # Crear figura con subplots
         fig = make_subplots(
             rows=4, cols=3,
             subplot_titles=(
-                # Fila 1
-                "📈 Evolución de Densidad Temporal",
-                "🚗 Distribución por Tipo de Vehículo", 
-                "🚦 Distribución de Nivel de Servicio",
-                # Fila 2
-                "⚠️ Incidentes por Tipo",
-                "📍 Flujo Vehicular por Sector",
-                "⚡ Distribución de Velocidades",
-                # Fila 3
-                "✅ Confianza del Modelo por Clase",
-                "📊 Evolución Temporal (Media por Intervalo)",
-                "🎯 Precisión de Detecciones",
-                # Fila 4
-                "🔥 Mapa de Calor: Densidad",
-                "📉 Tendencia de Ocupación",
-                "⚠️ Indicador de Riesgo Global"
+                "📈 Flujo Acumulado vs Ocupación Instantánea", 
+                "🚗 Distribución por Clase (Acumulada)", 
+                "🚦 Nivel de Servicio (LOS)",
+                "⚠️ Incidentes por Tipo", 
+                "📍 Densidad Temporal", 
+                "⚡ Estadísticas de Velocidad",
+                "🎯 Detecciones por Frame", 
+                "📊 Ocupación Media", 
+                "🔥 Tendencia de Flujo",
+                "📉 Comparativa Clases", 
+                "⏱️ Timeline de Incidentes", 
+                "🎯 KPIs Principales"
             ),
             specs=[
                 [{"type": "scatter"}, {"type": "pie"}, {"type": "bar"}],
                 [{"type": "bar"}, {"type": "scatter"}, {"type": "box"}],
-                [{"type": "bar"}, {"type": "scatter"}, {"type": "bar"}],
-                [{"type": "heatmap"}, {"type": "scatter"}, {"type": "indicator"}]
+                [{"type": "scatter"}, {"type": "bar"}, {"type": "scatter"}],
+                [{"type": "scatter"}, {"type": "scatter"}, {"type": "indicator"}]
             ],
             vertical_spacing=0.08,
-            horizontal_spacing=0.10
+            horizontal_spacing=0.1
         )
-        
-        # ==================== FILA 1 ====================
-        
-        # 1.1 Densidad temporal suavizada
-        df['Densidad_Smooth'] = df['Densidad'].rolling(window=30, min_periods=1).mean()
+
+        # 1.1 Flujo Acumulado vs Ocupación (GRÁFICA PRINCIPAL)
         fig.add_trace(
             go.Scatter(
-                x=df['Frame'],
-                y=df['Densidad_Smooth'],
-                mode='lines',
-                name='Densidad',
-                line=dict(color='#00d2d3', width=2),
+                x=df['Frame'], 
+                y=df['Flujo_Acumulado'], 
+                mode='lines', 
+                name='Flujo Acumulado Total',
+                line=dict(color='#2ecc71', width=3),
                 fill='tozeroy',
-                fillcolor='rgba(0, 210, 211, 0.2)'
-            ),
+                fillcolor='rgba(46, 204, 113, 0.1)'
+            ), 
             row=1, col=1
         )
-        
-        # Líneas de referencia LOS
-        # --- Umbral E/F (row 1, col 1) ---
-        fig.add_shape(
-            type="line",
-            xref="x domain",
-            yref="y",
-            x0=0, x1=1,
-            y0=45, y1=45,
-            line=dict(color="orange", width=2, dash="dash"),
-            row=1, col=1
-        )
-
-        fig.add_annotation(
-            text="Umbral E/F",
-            xref="x domain",
-            yref="y",
-            x=0.02, y=45,
-            showarrow=False,
-            yshift=10,
-            font=dict(color="orange", size=10),
+        fig.add_trace(
+            go.Scatter(
+                x=df['Frame'], 
+                y=df['Ocupacion_Actual'], 
+                mode='lines', 
+                name='Ocupación Instantánea',
+                line=dict(color='#e74c3c', width=2, dash='dot')
+            ), 
             row=1, col=1
         )
 
-        # --- Colapso (row 1, col 1) ---
-        fig.add_shape(
-            type="line",
-            xref="x domain",
-            yref="y",
-            x0=0, x1=1,
-            y0=67, y1=67,
-            line=dict(color="red", width=2, dash="dash"),
-            row=1, col=1
-        )
-
-        fig.add_annotation(
-            text="Colapso",
-            xref="x domain",
-            yref="y",
-            x=0.02, y=67,
-            showarrow=False,
-            yshift=10,
-            font=dict(color="red", size=10),
-            row=1, col=1
-        )
-        
-        # 1.2 Distribución vehicular (pie chart)
+        # 1.2 Pie chart de distribución por clase (Acumulados)
+        last_row = df.iloc[-1] if not df.empty else pd.Series()
         vehicle_counts = {
-            'Turismos': int(df['Turismos'].sum()),
-            'Motocicletas': int(df['Motos'].sum()),
-            'Bicicletas': int(df['Bicis'].sum()),
-            'Buses': int(df['Buses'].sum()),
-            'Camiones': int(df['Camiones'].sum())
+            'Coches': last_row.get('Acum_Coches', 0),
+            'Motocicletas': last_row.get('Acum_Motos', 0),
+            'Bicicletas': last_row.get('Acum_Bicis', 0),
         }
-        
-        # Filtrar ceros
-        vehicle_counts = {k: v for k, v in vehicle_counts.items() if v > 0}
-        
-        colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6']
-        
         fig.add_trace(
             go.Pie(
-                labels=list(vehicle_counts.keys()),
-                values=list(vehicle_counts.values()),
+                labels=list(vehicle_counts.keys()), 
+                values=list(vehicle_counts.values()), 
                 hole=0.4,
-                marker=dict(colors=colors),
-                textinfo='label+percent',
-                textposition='outside'
-            ),
+                marker=dict(colors=['#3498db', '#e74c3c', '#f39c12'])
+            ), 
             row=1, col=2
         )
-        
-        # 1.3 Nivel de Servicio
-        los_counts = df['LOS'].value_counts()
-        los_order = ['A', 'B', 'C', 'D', 'E', 'F']
-        los_counts = los_counts.reindex(los_order, fill_value=0)
-        
-        los_colors = {
-            'A': '#2ecc71',
-            'B': '#27ae60',
-            'C': '#f39c12',
-            'D': '#e67e22',
-            'E': '#e74c3c',
-            'F': '#c0392b'
-        }
-        
+
+        # 1.3 Level of Service (LOS)
+        los_counts = df['LOS'].value_counts().reindex(['A','B','C','D','E','F'], fill_value=0)
+        colors = ['#2ecc71', '#27ae60', '#f39c12', '#e67e22', '#e74c3c', '#c0392b']
         fig.add_trace(
             go.Bar(
-                x=los_counts.index,
-                y=los_counts.values,
-                marker=dict(color=[los_colors.get(x, '#95a5a6') for x in los_counts.index]),
-                name='LOS Count',
+                x=los_counts.index, 
+                y=los_counts.values, 
+                marker_color=colors,
                 text=los_counts.values,
-                textposition='outside'
-            ),
+                textposition='auto'
+            ), 
             row=1, col=3
         )
-        
-        # ==================== FILA 2 ====================
-        
+
         # 2.1 Incidentes por tipo
         if incidents:
-            incident_types = defaultdict(int)
+            incident_types = {}
             for inc in incidents:
-                incident_types[inc['type']] += 1
-            
-            incident_colors = {
-                'VEHICULO_DETENIDO': '#e74c3c',
-                'FRENADA_BRUSCA': '#f39c12',
-                'CONFLICTO_ESPACIAL': '#e67e22',
-                'DENSIDAD_PELIGROSA': '#c0392b'
-            }
-            
-            types = list(incident_types.keys())
-            counts_inc = list(incident_types.values())
+                inc_type = inc.get('type', 'Unknown')
+                incident_types[inc_type] = incident_types.get(inc_type, 0) + 1
             
             fig.add_trace(
                 go.Bar(
-                    x=types,
-                    y=counts_inc,
-                    marker=dict(color=[incident_colors.get(t, '#95a5a6') for t in types]),
-                    name='Incidentes',
-                    text=counts_inc,
-                    textposition='outside'
-                ),
+                    x=list(incident_types.keys()), 
+                    y=list(incident_types.values()),
+                    marker_color='#e74c3c',
+                    text=list(incident_types.values()),
+                    textposition='auto'
+                ), 
                 row=2, col=1
             )
-        
-        # 2.2 Flujo por sector
-        for sector_name, data in sector_data.items():
-            if data:
-                frames_s = [d['frame'] for d in data]
-                counts_s = [d['count'] for d in data]
-                
-                fig.add_trace(
-                    go.Scatter(
-                        x=frames_s,
-                        y=counts_s,
-                        mode='lines',
-                        name=sector_name.replace('_', ' ').title(),
-                        line=dict(width=2)
-                    ),
-                    row=2, col=2
-                )
-        
-        # 2.3 Velocidades
-        if 'Velocidad_Media' in df.columns and df['Velocidad_Media'].sum() > 0:
-            velocidades_kmh = df['Velocidad_Media'] * 3.6  # Convertir a km/h
-            velocidades_kmh = velocidades_kmh[velocidades_kmh > 0]
-            
-            if len(velocidades_kmh) > 0:
-                fig.add_trace(
-                    go.Box(
-                        y=velocidades_kmh,
-                        name='Velocidad (km/h)',
-                        marker=dict(color='#3498db'),
-                        boxmean='sd'
-                    ),
-                    row=2, col=3
-                )
-        
-        # ==================== FILA 3 ====================
-        
-        # 3.1 Confianza del modelo
-        if validation_report.get('by_class'):
-            classes_val = list(validation_report['by_class'].keys())
-            confs_val = [validation_report['by_class'][c]['confidence']['mean'] 
-                        for c in classes_val]
-            
-            fig.add_trace(
-                go.Bar(
-                    x=classes_val,
-                    y=confs_val,
-                    marker=dict(color='#48dbfb'),
-                    name='Confianza Media',
-                    text=[f"{c:.2%}" for c in confs_val],
-                    textposition='outside'
-                ),
-                row=3, col=1
-            )
-            
-            # Línea de referencia
-            fig.add_shape(
-                type="line",
-                xref="x domain", yref="y", # Usar el dominio del subplot específico
-                x0=0, x1=1,                # De principio a fin del eje X del subplot
-                y0=0.5, y1=0.5,            # Altura 0.5
-                line=dict(color="orange", width=2, dash="dash"),
-                row=3, col=1
-            )
-            # Añadimos la etiqueta manualmente
-            fig.add_annotation(
-                text="Umbral Mínimo",
-                xref="x domain", yref="y",
-                x=0.05, y=0.5,
-                showarrow=False,
-                yshift=10,
-                font=dict(color="orange", size=10),
-                row=3, col=1
-            )
-                         
-        
-        # 3.2 Evolución temporal
-        df['Intervalo'] = (df['Frame'] // 300).astype(int)
-        temporal = df.groupby('Intervalo').agg({
-            'Total': 'mean',
-            'Densidad': 'mean'
-        })
-        
+
+        # 2.2 Densidad temporal
         fig.add_trace(
             go.Scatter(
-                x=temporal.index,
-                y=temporal['Total'],
-                mode='lines+markers',
-                name='Media por Intervalo',
-                line=dict(color='#9b59b6', width=3),
-                marker=dict(size=8)
-            ),
-            row=3, col=2
+                x=df['Frame'], 
+                y=df['Densidad'], 
+                mode='lines',
+                name='Densidad (veh/km²)',
+                line=dict(color='#9b59b6', width=2),
+                fill='tozeroy'
+            ), 
+            row=2, col=2
         )
-        
-        # 3.3 Precisión de detecciones
-        if validation_report.get('by_class'):
-            classes_prec = list(validation_report['by_class'].keys())
-            counts_prec = [validation_report['by_class'][c]['count'] 
-                          for c in classes_prec]
-            
+
+        # 3.1 Detecciones por frame
+        fig.add_trace(
+            go.Scatter(
+                x=df['Frame'], 
+                y=df['Inst_Coches'] + df['Inst_Motos'] + df['Inst_Bicis'], 
+                mode='markers',
+                name='Total Detecciones',
+                marker=dict(size=3, color='#3498db')
+            ), 
+            row=3, col=1
+        )
+
+        # 3.2 Ocupación media
+        if not df.empty:
+            mean_occupancy = df['Ocupacion_Actual'].mean()
             fig.add_trace(
                 go.Bar(
-                    x=classes_prec,
-                    y=counts_prec,
-                    marker=dict(color='#2ecc71'),
-                    name='Detecciones Totales',
-                    text=counts_prec,
-                    textposition='outside'
-                ),
-                row=3, col=3
+                    x=['Media'], 
+                    y=[mean_occupancy],
+                    marker_color='#1abc9c',
+                    text=[f"{mean_occupancy:.1f}"],
+                    textposition='auto'
+                ), 
+                row=3, col=2
             )
-        
-        # ==================== FILA 4 ====================
-        
-        # 4.1 Mapa de calor de densidad
-        # Crear matriz de densidad por intervalos
-        df['Intervalo_10s'] = (df['Frame'] // 300).astype(int)
-        heatmap_data = df.pivot_table(
-            values='Densidad',
-            index='Intervalo_10s',
-            aggfunc='mean'
-        )
-        
-        # Crear matriz 2D para heatmap (simular sectores)
-        heatmap_matrix = []
-        for i in range(min(10, len(heatmap_data))):
-            value = float(heatmap_data.iloc[i].values[0])
-            row = [value] * 5
-            heatmap_matrix.append(row)
 
-        
-        if heatmap_matrix:
-            fig.add_trace(
-                go.Heatmap(
-                    z=heatmap_matrix,
-                    colorscale='RdYlGn_r',
-                    showscale=True,
-                    colorbar=dict(title="Densidad")
-                ),
-                row=4, col=1
-            )
-        
-        # 4.2 Tendencia de ocupación
-        if 'Total' in df.columns:
-            # Calcular ocupación relativa
-            max_capacity = df['Total'].quantile(0.95)  # Capacidad estimada
-            df['Ocupacion'] = (df['Total'] / max_capacity * 100).clip(0, 100)
-            
+        # 3.3 Tendencia de flujo
+        if len(df) > 10:
+            window = min(30, len(df) // 10)
+            df['Flujo_Smooth'] = df['Flujo_Acumulado'].rolling(window=window).mean()
             fig.add_trace(
                 go.Scatter(
-                    x=df['Frame'],
-                    y=df['Ocupacion'],
+                    x=df['Frame'], 
+                    y=df['Flujo_Smooth'], 
                     mode='lines',
-                    name='Ocupación %',
-                    line=dict(color='#e74c3c', width=2),
-                    fill='tozeroy',
-                    fillcolor='rgba(231, 76, 60, 0.2)'
-                ),
-                row=4, col=2
-            )
-            
-            # Líneas de referencia
-            fig.add_shape(
-                type="line",
-                xref="x domain",
-                yref="y",
-                x0=0, x1=1,
-                y0=80, y1=80,
-                line=dict(color="orange", width=2, dash="dash"),
-                row=4, col=2
+                    name='Tendencia Suavizada',
+                    line=dict(color='#16a085', width=2)
+                ), 
+                row=3, col=3
             )
 
-            fig.add_annotation(
-                text="80% Capacidad",
-                xref="x domain",
-                yref="y",
-                x=0.02, y=80,
-                showarrow=False,
-                yshift=10,
-                font=dict(color="orange", size=10),
-                row=4, col=2
-            )
-        
-        # 4.3 Indicador de riesgo global
-        total_incidents = len(incidents)
-        
-        if total_incidents < 5:
-            risk_level = "BAJO"
-            risk_color = "#2ecc71"
-        elif total_incidents < 15:
-            risk_level = "MEDIO"
-            risk_color = "#f39c12"
-        elif total_incidents < 30:
-            risk_level = "ALTO"
-            risk_color = "#e67e22"
-        else:
-            risk_level = "CRÍTICO"
-            risk_color = "#e74c3c"
-        
+        # 4.3 KPI Indicator (Total de incidentes)
         fig.add_trace(
             go.Indicator(
                 mode="number+delta+gauge",
-                value=total_incidents,
-                delta={'reference': 10},
+                value=len(incidents),
+                title={'text': "⚠️ Incidentes Detectados"},
+                delta={'reference': 0},
                 gauge={
-                    'axis': {'range': [0, 50]},
-                    'bar': {'color': risk_color},
-                    'steps': [
-                        {'range': [0, 5], 'color': "lightgreen"},
-                        {'range': [5, 15], 'color': "lightyellow"},
-                        {'range': [15, 30], 'color': "orange"},
-                        {'range': [30, 50], 'color': "red"}
-                    ],
+                    'axis': {'range': [0, max(len(incidents), 10)]},
+                    'bar': {'color': "#e74c3c"},
                     'threshold': {
                         'line': {'color': "red", 'width': 4},
                         'thickness': 0.75,
-                        'value': 40
+                        'value': len(incidents) * 0.8
                     }
-                },
-                title={
-                    'text': f"<b>Incidentes Totales</b><br><span style='font-size:0.9em'>Nivel de Riesgo: {risk_level}</span>",
-                    'font': {'size': 16}
-                },
-            ),
+                }
+            ), 
             row=4, col=3
         )
-        
-        # ==================== LAYOUT ====================
+
+        # Layout general
+        title_text = "AeroTrace - Dashboard de Análisis de Tráfico UAV"
+        if scene_info:
+            title_text += f" | Escena: {scene_info.get('name', 'N/A')} ({scene_info.get('type', 'N/A')})"
         
         fig.update_layout(
             template="plotly_dark",
-            title={
-                'text': "<b>AeroTrace v5.0 - Dashboard de Análisis Integral de Tráfico UAV</b>",
-                'x': 0.5,
-                'xanchor': 'center',
-                'font': {'size': 24, 'color': '#ecf0f1'}
-            },
+            height=1600,
+            title_text=title_text,
             showlegend=True,
-            height=1800,
-            font=dict(family="Arial, sans-serif", size=11),
-            plot_bgcolor='#1e1e1e',
-            paper_bgcolor='#0e0e0e'
+            font=dict(size=10)
         )
-        
-        # Actualizar ejes
-        fig.update_xaxes(showgrid=True, gridwidth=0.5, gridcolor='#2c3e50')
-        fig.update_yaxes(showgrid=True, gridwidth=0.5, gridcolor='#2c3e50')
         
         # Guardar
         fig.write_html(output_path)
-        print(f"✅ Dashboard guardado en: {output_path}")
+        print(f"✅ Dashboard guardado: {output_path}")
+        
+        # También crear un resumen en JSON
+        summary_path = output_path.replace('.html', '_summary.json')
+        summary_data = {
+            'scene_info': scene_info,
+            'total_frames': len(df),
+            'total_flow': int(df['Flujo_Acumulado'].iloc[-1]) if not df.empty else 0,
+            'avg_occupancy': float(df['Ocupacion_Actual'].mean()) if not df.empty else 0,
+            'max_density': float(df['Densidad'].max()) if not df.empty else 0,
+            'total_incidents': len(incidents),
+            'vehicle_distribution': vehicle_counts,
+            'los_distribution': los_counts.to_dict()
+        }
+        
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            json.dump(summary_data, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
+        print(f"✅ Resumen guardado: {summary_path}")
 
 # =============================================================================
-# SISTEMA PRINCIPAL MEJORADO
+# SISTEMA PRINCIPAL - AEROTRACE
 # =============================================================================
 
 class AeroTraceSystem:
-    """Sistema principal de análisis de tráfico con UAV - Versión mejorada"""
+    """
+    Sistema principal de análisis de tráfico con UAV
+    Optimizado para dataset de imágenes aéreas con formato YOLO
+    """
     
-    def __init__(self):
-        print("="*80)
-        print("🚀 INICIANDO AEROTRACE v5.0 - SISTEMA AVANZADO DE ANÁLISIS DE TRÁFICO")
-        print("="*80)
+    def __init__(self, model_name: str = None):
+        print("=" * 60)
+        print("🚀 INICIANDO AEROTRACE v2.0 - HACKATHON EDITION")
+        print("=" * 60)
         
-        # Cargar modelo
-        print("\n📦 Cargando modelo YOLOv8...")
-        self.model = YOLO(CONFIG.MODEL_NAME)
+        # Cargar modelo YOLO
+        model_path = model_name if model_name else CONFIG.MODEL_NAME
+        print(f"📦 Cargando modelo: {model_path}")
+        self.model = YOLO(model_path)
         
-        # Mover a GPU si está disponible
-        try:
-            self.model.to('cuda')
-            print("✅ Modelo cargado en GPU")
-        except:
-            print("⚠️  GPU no disponible, usando CPU")
-        
-        # Tracker mejorado
-        print("🎯 Configurando ByteTrack...")
+        # Tracker ByteTrack
         self.tracker = sv.ByteTrack(
-            track_thresh=CONFIG.TRACK_THRESH,
-            track_buffer=CONFIG.TRACK_BUFFER,
-            match_thresh=CONFIG.MATCH_THRESH,
+            track_activation_threshold=CONFIG.TRACK_THRESH,  # Antes: track_thresh
+            lost_track_buffer=CONFIG.TRACK_BUFFER,           # Antes: track_buffer
+            minimum_matching_threshold=CONFIG.MATCH_THRESH,  # Antes: match_thresh
             frame_rate=30
-        )
+        ) # TRACKING OPTIMIZADO
+        print(f"🎯 Tracker inicializado: ByteTrack")
         
-        # Anotadores
-        self.box_annotator = sv.BoxAnnotator(
+        # Sistema de conteo por línea (CRÍTICO para flujo)
+        self.line_zone = sv.LineZone(start=CONFIG.LINE_START, end=CONFIG.LINE_END)
+        self.line_zone_annotator = sv.LineZoneAnnotator(
             thickness=2,
-            color=sv.ColorPalette.DEFAULT
-        )
-        self.label_annotator = sv.LabelAnnotator(
-            text_scale=0.5,
             text_thickness=1,
-            text_padding=5
-        )
-        self.trace_annotator = sv.TraceAnnotator(
-            thickness=2,
-            trace_length=50,
-            position=sv.Position.CENTER
+            text_scale=0.5,
+            color=sv.Color.WHITE
         )
         
-        # Mejora de imagen con CLAHE
-        print("🎨 Configurando procesamiento de imagen...")
-        self.clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        # Contador acumulativo persistente (por clase)
+        self.cumulative_counts = defaultdict(int)
         
-        # Almacenamiento de datos
+        # Anotadores visuales
+        self.box_annotator = sv.BoxAnnotator(thickness=2, color_lookup=sv.ColorLookup.CLASS)
+        self.label_annotator = sv.LabelAnnotator(text_scale=0.5, text_thickness=1)
+        self.trace_annotator = sv.TraceAnnotator(thickness=2, trace_length=50)
+        
+        # Logs de métricas
         self.metrics_log = []
         self.sector_metrics = defaultdict(list)
         
-        print("✅ Sistema inicializado correctamente\n")
-
+        # Slicer para inferencia en imágenes grandes
         def callback(image: np.ndarray) -> sv.Detections:
-            results = self.model(image, imgsz=640, verbose=False)[0]
+            results = self.model(image, imgsz=CONFIG.IMGSZ, verbose=False, conf=CONFIG.CONF_THRESHOLD)[0]
             return sv.Detections.from_ultralytics(results)
-
+        
         self.slicer = sv.InferenceSlicer(
             callback=callback,
             slice_wh=(640, 640),
-            overlap_ratio_wh=(0.2, 0.2) # 20% de solape para no cortar coches a la mitad
+            overlap_wh=(0.2, 0.2),
+            iou_threshold=CONFIG.IOU_THRESHOLD
         )
-    
-    def enhance_image(self, frame: np.ndarray) -> np.ndarray:
-        """Mejora contraste de imagen con CLAHE"""
-        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        l_clahe = self.clahe.apply(l)
-        lab_enhanced = cv2.merge((l_clahe, a, b))
-        return cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
-    
-    def analyze_sectors(self, detections: sv.Detections, frame_idx: int):
-        """Analiza flujo vehicular por sectores"""
-        for sector_name, sector_poly in CONFIG.SECTORES.items():
-            zone = sv.PolygonZone(
-                polygon=sector_poly,
-                frame_resolution_wh=(1920, 1080)
-            )
-            mask = zone.trigger(detections=detections)
-            count = int(np.sum(mask))
+        
+        print("✅ Sistema inicializado correctamente")
+        print("=" * 60)
+
+    def run(self, 
+            source_path: str = None, 
+            progress_callback: Callable = None, 
+            display_callback: Callable = None,
+            scene_name: str = None,
+            scenes_csv_path: str = None) -> Tuple[str, pd.DataFrame, List[Dict]]:
+        """
+        Ejecuta el análisis completo del sistema
+        
+        Args:
+            source_path: Ruta a directorio de imágenes o video
+            progress_callback: Callback para actualizar progreso (Streamlit)
+            display_callback: Callback para mostrar frames (Streamlit)
+            scene_name: Nombre de la escena (para metadata)
+            scenes_csv_path: Ruta al archivo scenes.csv
             
-            self.sector_metrics[sector_name].append({
-                'frame': frame_idx,
-                'count': count
-            })
-    
-    def run(self):
-        """Pipeline principal de procesamiento"""
+        Returns:
+            Tuple: (video_output_path, dataframe_metrics, incidents_list)
+        """
         
-        # ==================== CARGA DE DATOS ====================
+        # Cargar información de escenas
+        dataset_loader = DatasetLoader(scenes_csv_path)
+        scene_info = dataset_loader.get_scene_info(scene_name) if scene_name else {}
         
-        search_path = os.path.join(CONFIG.SOURCE_IMAGES_DIR, "*.jpg")
-        frames = sorted(glob.glob(search_path))
+        print(f"\n{'='*60}")
+        print(f"🎬 INICIANDO PROCESAMIENTO")
+        if scene_info.get('type'):
+            print(f"📍 Escena: {scene_info['name']} - {scene_info['type']}")
+            print(f"🌍 Coordenadas: {scene_info['lat']}, {scene_info['long']}")
+        print(f"{'='*60}\n")
         
-        if not frames:
-            # Intentar con PNG
-            search_path = os.path.join(CONFIG.SOURCE_IMAGES_DIR, "*.png")
-            frames = sorted(glob.glob(search_path))
+        # Determinar fuente de datos
+        src = source_path if source_path else CONFIG.SOURCE_IMAGES_DIR
         
-        if not frames:
-            print(f"❌ ERROR: No se encontraron imágenes en {CONFIG.SOURCE_IMAGES_DIR}")
-            print("   Formatos soportados: .jpg, .png")
-            return
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"❌ Fuente no encontrada: {src}")
         
-        if CONFIG.MAX_FRAMES and len(frames) > CONFIG.MAX_FRAMES:
-            print(f"⚠️  Limitando procesamiento a {CONFIG.MAX_FRAMES} frames")
-            frames = frames[:CONFIG.MAX_FRAMES]
+        # Determinar si es video o directorio de imágenes
+        is_video = False
+        total_frames = 0
         
-        print(f"📁 Se procesarán {len(frames)} frames")
+        if os.path.isdir(src):
+            # Directorio de imágenes
+            print(f"📁 Modo: Directorio de imágenes")
+            files = []
+            for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG']:
+                files.extend(glob.glob(os.path.join(src, ext)))
+            
+            if not files:
+                raise ValueError(f"❌ No se encontraron imágenes en: {src}")
+            
+            # ORDENAMIENTO CRÍTICO
+            files = dataset_loader.smart_sort_files(files)
+            
+            # Validar primeros archivos
+            print("🔍 Validando archivos...")
+            valid_files = []
+            for f in tqdm(files[:min(10, len(files))], desc="Validando muestra"):
+                if dataset_loader.validate_image_file(f):
+                    valid_files.append(f)
+            
+            if not valid_files:
+                raise ValueError("❌ No se encontraron imágenes válidas")
+            
+            print(f"✅ Archivos válidos encontrados: {len(files)}")
+            total_frames = len(files)
+            
+            # Leer primera imagen para dimensiones
+            first_frame = cv2.imread(files[0])
+            if first_frame is None:
+                raise ValueError(f"❌ No se pudo leer la primera imagen: {files[0]}")
+            
+            h, w = first_frame.shape[:2]
+            
+        else:
+            # Video
+            print(f"🎥 Modo: Video")
+            if not os.path.isfile(src):
+                raise ValueError(f"❌ Archivo no encontrado: {src}")
+            
+            try:
+                video_info = sv.VideoInfo.from_video_path(src)
+                w, h = video_info.width, video_info.height
+                total_frames = video_info.total_frames
+                is_video = True
+                files = sv.get_video_frames_generator(src)
+                print(f"✅ Video cargado: {w}x{h}, {total_frames} frames")
+            except Exception as e:
+                raise ValueError(f"❌ Error cargando video: {e}")
         
-        # ==================== INICIALIZACIÓN ====================
+        print(f"📐 Dimensiones: {w}x{h}")
+        print(f"🎞️  Total de frames: {total_frames}")
         
-        # Leer primer frame para obtener dimensiones
-        first_frame = cv2.imread(frames[0])
-        if first_frame is None:
-            print(f"❌ ERROR: No se pudo leer el primer frame: {frames[0]}")
-            return
-        
-        h, w, _ = first_frame.shape
-        print(f"📐 Resolución de video: {w}x{h} px")
-        
-        # Inicializar sistemas
+        # Inicializar componentes
         engineer = TrafficEngineer(w, h)
         vehicle_tracker = VehicleTracker(engineer.gsd)
         incident_detector = IncidentDetector(engineer.gsd)
-        validation_metrics = ValidationMetrics()
-        detection_filter = DetectionFilter()
         
-        # Configurar zona de interés
+        # Zona ROI
         zone = sv.PolygonZone(
-            polygon=CONFIG.ZONE_POLYGON,
-            frame_resolution_wh=(w, h)
+        polygon=CONFIG.ZONE_POLYGON,
+        triggering_anchors=[sv.Position.CENTER] 
+        
         )
+
         zone_annotator = sv.PolygonZoneAnnotator(
-            zone=zone,
-            color=sv.Color.WHITE,
+            zone=zone, 
+            color=sv.Color.from_hex("#00FF00"), 
             thickness=2,
-            text_thickness=2,
+            text_thickness=1,
             text_scale=0.5
         )
+        road_area_m2 = engineer.area_px_to_m2(cv2.contourArea(CONFIG.ZONE_POLYGON.astype(np.int32)))
+        print(f"🛣️  Área de análisis: {road_area_m2:.2f} m²")
         
-        # Calcular área de la zona en metros cuadrados
-        poly_area_px = cv2.contourArea(CONFIG.ZONE_POLYGON.astype(np.int32))
-        road_area_m2 = engineer.area_px_to_m2(poly_area_px)
+        # Configurar iterador
+        if CONFIG.MAX_FRAMES and CONFIG.MAX_FRAMES < total_frames:
+            print(f"⚠️  Limitando a {CONFIG.MAX_FRAMES} frames (config)")
+            total_frames = CONFIG.MAX_FRAMES
         
-        print(f"📏 Área de análisis: {road_area_m2:.1f} m²")
-        print(f"   Equivalente a: {road_area_m2/10000:.4f} hectáreas")
+        iterator = files if not is_video else files
+        if not is_video:
+            iterator = tqdm(files, total=total_frames, desc="Procesando")
+        else:
+            iterator = tqdm(files, total=total_frames, desc="Procesando")
         
-        # Configurar video de salida
-        video_path = os.path.join(CONFIG.OUTPUT_DIR, "video_final_v5_improved.mp4")
-        video_info = sv.VideoInfo(width=w, height=h, fps=30)
+        # Video de salida
+        video_output_path = os.path.join(CONFIG.OUTPUT_DIR, f"video_processed_{scene_name if scene_name else 'output'}.mp4")
         
-        print(f"\n🎬 Generando video de salida: {video_path}")
+        print(f"\n🎬 Iniciando procesamiento de {total_frames} frames...")
+        print(f"💾 Output: {video_output_path}\n")
         
-        # ==================== PROCESAMIENTO PRINCIPAL ====================
-        
-        print("\n" + "="*80)
-        print("🔄 INICIANDO PROCESAMIENTO DE FRAMES")
-        print("="*80 + "\n")
-        
-        with sv.VideoSink(video_path, video_info) as sink:
-            for frame_idx, path in enumerate(tqdm(frames, desc="Procesando frames")):
+        # Pipeline principal
+        with sv.VideoSink(video_output_path, sv.VideoInfo(width=w, height=h, fps=30)) as sink:
+            
+            for frame_idx, frame_data in enumerate(iterator):
+                
+                # Limitar frames si está configurado
+                if CONFIG.MAX_FRAMES and frame_idx >= CONFIG.MAX_FRAMES:
+                    break
                 
                 # Leer frame
-                original_frame = cv2.imread(path)
-                if original_frame is None:
-                    print(f"⚠️  Warning: No se pudo leer frame {frame_idx}: {path}")
+                if is_video:
+                    frame = frame_data
+                else:
+                    frame = cv2.imread(frame_data)
+                
+                if frame is None:
+                    print(f"⚠️ Frame {frame_idx} no válido, saltando...")
                     continue
                 
-                # Mejorar imagen
-                enhanced_frame = self.enhance_image(original_frame)
+                # =================================================================
+                # PASO 1: DETECCIÓN CON YOLO + SLICER
+                # =================================================================
+                detections = self.slicer(frame)
                 
-                # ============ INFERENCIA ============
-                results = self.model(
-                    enhanced_frame,
-                    imgsz=CONFIG.IMGSZ,
-                    conf=CONFIG.CONF_THRESHOLD,
-                    iou=CONFIG.IOU_THRESHOLD,
-                    verbose=False,
-                    device='cuda' if self.model.device.type == 'cuda' else 'cpu'
-                )[0]
+                # Filtrar por zona ROI
+                detections = detections[zone.trigger(detections=detections)]
                 
-                # En lugar de model(frame), usamos el slicer
-                detections = self.slicer(enhanced_frame)
+                # Filtrar por clases objetivo (solo cars y motorcycles para dataset UAV)
+                detections = detections[np.isin(detections.class_id, CONFIG.TARGET_CLASSES)]
                 
-                # ============ FILTRADO ============
+                # Aplicar filtros de calidad
+                detections = DetectionFilter.apply_all_filters(detections)
                 
-                # Filtro por zona
-                mask_zone = zone.trigger(detections=detections)
-                detections = detections[mask_zone]
-                
-                # Filtro por clases objetivo
-                mask_classes = np.isin(detections.class_id, CONFIG.TARGET_CLASSES)
-                detections = detections[mask_classes]
-                
-                # Filtros avanzados
-                detections = detection_filter.apply_all_filters(detections)
-                
-                # ============ TRACKING ============
+                # =================================================================
+                # PASO 2: TRACKING
+                # =================================================================
                 detections = self.tracker.update_with_detections(detections)
-
-                # ============ MEJORA 1: CONTINUIDAD TEMPORAL PARA MOTOCICLETAS ============
-                # Se prioriza continuidad temporal de motocicletas por su menor tamaño en UAV
-                if detections.tracker_id is not None:
-                    for i, (tid, cid) in enumerate(zip(detections.tracker_id, detections.class_id)):
-                        if cid == 3:  # Motocicleta
-                            # Mantener track activo aunque haya fallos puntuales de detección
-                            if vehicle_tracker.stopped_counters.get(int(tid), 0) < 5:
-                                continue
                 
-                # ============ VALIDACIÓN ============
-                validation_metrics.update(detections)
+                # =================================================================
+                # PASO 3: CONTEO DE FLUJO (CRÍTICO)
+                # =================================================================
+                # LineZone.trigger devuelve (crossed_in, crossed_out)
+                crossed_in, crossed_out = self.line_zone.trigger(detections=detections)
                 
-                # ============ ANÁLISIS POR SECTORES ============
-                self.analyze_sectors(detections, frame_idx)
+                # Actualizar contadores acumulativos
+                for idx, (is_in, is_out) in enumerate(zip(crossed_in, crossed_out)):
+                    if is_in or is_out:  # Cualquier cruce cuenta
+                        class_id = detections.class_id[idx]
+                        self.cumulative_counts[class_id] += 1
                 
-                # ============ CONTEO POR CLASE ============
-                class_counts = {1: 0, 2: 0, 3: 0, 5: 0, 7: 0}
-                for class_id in detections.class_id:
-                    if class_id in class_counts:
-                        class_counts[class_id] += 1
+                # =================================================================
+                # PASO 4: MÉTRICAS INSTANTÁNEAS
+                # =================================================================
+                # Ocupación (vehículos en pantalla ahora)
+                occupancy_counts = defaultdict(int)
+                for cid in detections.class_id:
+                    occupancy_counts[cid] += 1
                 
-                total_vehicles = len(detections)
+                total_occupancy = len(detections)
+                total_cumulative = sum(self.cumulative_counts.values())
                 
-                # ============ MÉTRICAS DE TRÁFICO ============
-                density = engineer.calculate_density(total_vehicles, road_area_m2)
-                los_letter, los_desc = engineer.calculate_level_of_service(density)
-                los_full = f"{los_letter} ({los_desc})"
+                # Densidad y Level of Service
+                density = engineer.calculate_density(total_occupancy, road_area_m2)
+                los, los_desc = engineer.calculate_level_of_service(density)
                 
-                # ============ ANÁLISIS DE INCIDENTES ============
+                # =================================================================
+                # PASO 5: DETECCIÓN DE INCIDENTES
+                # =================================================================
+                num_incidents_frame = 0
                 
-                velocidades = []
-                num_stopped = 0
-                num_harsh_braking = 0
-                
-                if detections.tracker_id is not None and len(detections.tracker_id) > 0:
-                    for tid, xyxy, cid in zip(detections.tracker_id, 
-                                             detections.xyxy, 
-                                             detections.class_id):
-                        # Calcular centro
-                        cx = (xyxy[0] + xyxy[2]) / 2
-                        cy = (xyxy[1] + xyxy[3]) / 2
-                        center = np.array([cx, cy])
+                if detections.tracker_id is not None and len(detections) > 0:
+                    for tid, xyxy, cid in zip(detections.tracker_id, detections.xyxy, detections.class_id):
+                        # Centro del vehículo
+                        center = np.array([(xyxy[0] + xyxy[2]) / 2, (xyxy[1] + xyxy[3]) / 2])
                         
-                        # Actualizar historial
+                        # Actualizar tracking
                         vehicle_tracker.update(int(tid), center, frame_idx, int(cid))
                         
                         # Calcular cinemática
                         vel = vehicle_tracker.get_velocity(int(tid))
                         acc = vehicle_tracker.get_acceleration(int(tid))
                         
-                        velocidades.append(vel)
-                        
-                        # Contador de vehículos detenidos
+                        # Detectar vehículo detenido
                         if vel < CONFIG.VELOCIDAD_MIN_MOVIMIENTO:
                             vehicle_tracker.stopped_counters[int(tid)] += 1
                         else:
                             vehicle_tracker.stopped_counters[int(tid)] = 0
                         
-                        # Detectar vehículo detenido
+                        # Incidentes
                         if incident_detector.detect_stopped_vehicle(
-                            int(tid), vel, 
-                            vehicle_tracker.stopped_counters[int(tid)],
+                            int(tid), vel, vehicle_tracker.stopped_counters[int(tid)], 
                             center, frame_idx, int(cid)
                         ):
-                            num_stopped += 1
+                            num_incidents_frame += 1
                         
-                        # Detectar frenada brusca
                         if incident_detector.detect_harsh_braking(
                             int(tid), acc, center, frame_idx, int(cid), vel
                         ):
-                            num_harsh_braking += 1
+                            num_incidents_frame += 1
                 
                 # Detectar conflictos espaciales
                 conflicts = incident_detector.detect_conflicts(detections, frame_idx)
-                num_conflicts = len(conflicts)
+                num_incidents_frame += len(conflicts)
                 
                 # Detectar densidad peligrosa
-                incident_detector.detect_dangerous_density(
-                    density, frame_idx, total_vehicles
-                )
+                incident_detector.detect_dangerous_density(density, frame_idx, total_occupancy)
                 
-                total_incidents = num_stopped + num_harsh_braking + num_conflicts
-                
-                # ============ LOGGING DE MÉTRICAS ============
-                
-                vel_media = np.mean(velocidades) if velocidades else 0.0
-                
+                # =================================================================
+                # PASO 6: LOGGING DE MÉTRICAS
+                # =================================================================
                 self.metrics_log.append({
                     'Frame': frame_idx,
-                    'Total': total_vehicles,
-                    'Densidad': float(density),
-                    'LOS': los_letter,
-                    'LOS_Descripcion': los_desc,
-                    'Turismos': class_counts[2],
-                    'Motos': class_counts[3],
-                    'Buses': class_counts[5],
-                    'Camiones': class_counts[7],
-                    'Bicis': class_counts[1],
-                    'Velocidad_Media': float(vel_media),
-                    'Incidentes_Detenidos': num_stopped,
-                    'Incidentes_Frenadas': num_harsh_braking,
-                    'Incidentes_Conflictos': num_conflicts,
-                    'Incidentes_Total': total_incidents
+                    'Ocupacion_Actual': total_occupancy,
+                    'Flujo_Acumulado': total_cumulative,
+                    'Densidad': density,
+                    'LOS': los,
+                    # Instantáneos
+                    'Inst_Coches': occupancy_counts[2],
+                    'Inst_Motos': occupancy_counts[3],
+                    'Inst_Bicis': occupancy_counts[1],
+                    # Acumulados
+                    'Acum_Coches': self.cumulative_counts[2],
+                    'Acum_Motos': self.cumulative_counts[3],
+                    'Acum_Bicis': self.cumulative_counts[1],
+                    'Acum_Buses': self.cumulative_counts[5],
+                    'Acum_Camiones': self.cumulative_counts[7],
+                    'Incidentes_Total': len(incident_detector.incidents),
+                    'Incidentes_Frame': num_incidents_frame
                 })
                 
-                # ============ VISUALIZACIÓN ============
-                
-                # Preparar etiquetas
+                # =================================================================
+                # PASO 7: ANOTACIONES VISUALES
+                # =================================================================
+                # Labels con ID y clase
                 labels = []
-                if detections.tracker_id is not None and len(detections.tracker_id) > 0:
+                if detections.tracker_id is not None:
                     for tid, cid in zip(detections.tracker_id, detections.class_id):
-                        class_name = CONFIG.CLASS_NAMES.get(int(cid), '?')
-                        labels.append(f"#{int(tid)} {class_name}")
+                        class_name = CONFIG.CLASS_MAPPING.get(cid, '?')
+                        labels.append(f"#{tid} {class_name}")
                 
-                # Anotar frame
-                annotated_frame = original_frame.copy()
-                annotated_frame = zone_annotator.annotate(scene=annotated_frame)
-                annotated_frame = self.trace_annotator.annotate(annotated_frame, detections)
-                annotated_frame = self.box_annotator.annotate(annotated_frame, detections)
-                annotated_frame = self.label_annotator.annotate(
-                    annotated_frame, detections, labels=labels
-                )
+                # Anotar zona ROI
+                frame = zone_annotator.annotate(scene=frame)
                 
-                # ============ HUD (Heads-Up Display) ============
+                # Anotar línea de conteo
+                frame = self.line_zone_annotator.annotate(frame, line_counter=self.line_zone)
                 
-                # Panel de información
-                overlay = annotated_frame.copy()
-                cv2.rectangle(overlay, (0, 0), (550, 280), (0, 0, 0), -1)
-                annotated_frame = cv2.addWeighted(overlay, 0.75, annotated_frame, 0.25, 0)
+                # Anotar trazas
+                frame = self.trace_annotator.annotate(frame, detections)
                 
-                # Título
-                cv2.putText(
-                    annotated_frame,
-                    "AeroTrace v5.0 - Analisis Avanzado de Trafico",
-                    (20, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 255, 255),
-                    2
-                )
+                # Anotar bounding boxes
+                frame = self.box_annotator.annotate(frame, detections)
                 
-                # Frame
-                cv2.putText(
-                    annotated_frame,
-                    f"Frame: {frame_idx}/{len(frames)} ({frame_idx/len(frames)*100:.1f}%)",
-                    (20, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (200, 200, 200),
-                    1
-                )
+                # Anotar labels
+                frame = self.label_annotator.annotate(frame, detections, labels=labels)
                 
-                # Conteo de vehículos
-                cv2.putText(
-                    annotated_frame,
-                    f"Turismos: {class_counts[2]:2d} | Motos: {class_counts[3]:2d} | Bicis: {class_counts[1]:2d}",
-                    (20, 95),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 255, 255),
-                    2
-                )
+                # Texto con métricas principales
+                metrics_text = [
+                    f"Frame: {frame_idx}/{total_frames}",
+                    f"Flujo Total: {total_cumulative}",
+                    f"Ocupacion: {total_occupancy}",
+                    f"Densidad: {density:.1f} veh/km2",
+                    f"LOS: {los} ({los_desc})",
+                    f"Incidentes: {len(incident_detector.incidents)}"
+                ]
                 
-                cv2.putText(
-                    annotated_frame,
-                    f"Buses: {class_counts[5]:2d} | Camiones: {class_counts[7]:2d} | Total: {total_vehicles:2d}",
-                    (20, 125),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 255, 255),
-                    2
-                )
-                
-                # Métricas de tráfico
-                cv2.putText(
-                    annotated_frame,
-                    f"Densidad: {density:.1f} veh/km² | Nivel: {los_full}",
-                    (20, 160),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 200, 0),
-                    2
-                )
-                
-                # Color según LOS
-                los_color = (0, 255, 0) if los_letter in ['A', 'B'] else \
-                           (0, 165, 255) if los_letter in ['C', 'D'] else \
-                           (0, 0, 255)
-                
-                cv2.rectangle(annotated_frame, (510, 145), (540, 175), los_color, -1)
-                
-                # Velocidad media
-                if vel_media > 0:
-                    vel_kmh = vel_media * 3.6
+                y_offset = 30
+                for text in metrics_text:
                     cv2.putText(
-                        annotated_frame,
-                        f"Velocidad Media: {vel_kmh:.1f} km/h",
-                        (20, 195),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (255, 255, 255),
-                        1
+                        frame, text, (10, y_offset), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2
                     )
+                    y_offset += 25
                 
-                # Incidentes
-                inc_color = (0, 255, 0) if total_incidents == 0 else \
-                           (0, 200, 255) if total_incidents < 3 else \
-                           (0, 100, 255) if total_incidents < 5 else \
-                           (0, 0, 255)
+                # Escribir frame en video
+                sink.write_frame(frame)
                 
-                cv2.putText(
-                    annotated_frame,
-                    f"Incidentes: {total_incidents}",
-                    (20, 230),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    inc_color,
-                    2
-                )
+                # =================================================================
+                # PASO 8: CALLBACKS PARA STREAMLIT
+                # =================================================================
+                if progress_callback:
+                    progress_value = (frame_idx + 1) / total_frames
+                    progress_callback(frame_idx, progress_value)
                 
-                if total_incidents > 0:
-                    cv2.putText(
-                        annotated_frame,
-                        f"(Detenidos: {num_stopped} | Frenadas: {num_harsh_braking} | Conflictos: {num_conflicts})",
-                        (20, 260),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        inc_color,
-                        1
+                if display_callback and frame_idx % 3 == 0:  # Cada 3 frames
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    display_callback(
+                        frame_rgb, 
+                        total_cumulative, 
+                        density, 
+                        len(incident_detector.incidents)
                     )
-                
-                # Escribir frame al video
-                sink.write_frame(annotated_frame)
         
-        # ==================== GENERACIÓN DE REPORTES ====================
+        print(f"\n✅ Procesamiento completado: {frame_idx + 1} frames")
         
-        print("\n" + "="*80)
-        print("📝 GENERANDO REPORTES FINALES")
-        print("="*80 + "\n")
+        # =================================================================
+        # PASO 9: GENERACIÓN DE SALIDAS FINALES
+        # =================================================================
+        print("\n📊 Generando reportes y visualizaciones...")
         
-        # DataFrame principal
+        # DataFrame de métricas
         df = pd.DataFrame(self.metrics_log)
-        csv_path = os.path.join(CONFIG.OUTPUT_DIR, 'metrics', 'metricas_completas_v5.csv')
-        df.to_csv(csv_path, index=False)
-        print(f"✅ Métricas exportadas: {csv_path}")
+        metrics_csv_path = os.path.join(CONFIG.OUTPUT_DIR, 'metrics', f'metrics_{scene_name if scene_name else "output"}.csv')
+        df.to_csv(metrics_csv_path, index=False)
+        print(f"✅ Métricas guardadas: {metrics_csv_path}")
         
-        # Reporte de validación
-        validation_report = validation_metrics.generate_report()
-        validation_path = os.path.join(CONFIG.OUTPUT_DIR, 'validation', 'model_validation.json')
-        with open(validation_path, 'w', encoding='utf-8') as f:
-            json.dump(validation_report, f, indent=2, ensure_ascii=False)
-        print(f"✅ Validación del modelo: {validation_path}")
-        
-        # Reporte de incidentes
-        incident_summary = incident_detector.get_incident_summary()
-        incidents_path = os.path.join(CONFIG.OUTPUT_DIR, 'incidents', 'incidents_report.json')
-        with open(incidents_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'summary': incident_summary,
-                'detailed_incidents': incident_detector.incidents
-            }, f, indent=2, ensure_ascii=False)
-        print(f"✅ Reporte de incidentes: {incidents_path}")
-        
-        # Dashboard interactivo
-        dashboard_path = os.path.join(CONFIG.OUTPUT_DIR, 'dashboard_v5_improved.html')
+        # Dashboard HTML interactivo
+        dashboard_path = os.path.join(CONFIG.OUTPUT_DIR, f'dashboard_{scene_name if scene_name else "output"}.html')
         DashboardGenerator.create_advanced_dashboard(
-            df=df,
-            incidents=incident_detector.incidents,
-            validation_report=validation_report,
-            sector_data=dict(self.sector_metrics),
-            output_path=dashboard_path
+            df, 
+            incident_detector.incidents, 
+            {}, 
+            dict(self.sector_metrics),
+            dashboard_path,
+            scene_info
         )
         
-        # ==================== RESUMEN FINAL ====================
+        # Exportar incidentes
+        incidents_json_path = os.path.join(CONFIG.OUTPUT_DIR, 'incidents', f'incidents_{scene_name if scene_name else "output"}.json')
+        incident_detector.export_incidents_json(incidents_json_path)
         
-        print("\n" + "="*80)
-        print("✅ ANÁLISIS COMPLETADO - AEROTRACE v5.0 MEJORADO")
-        print("="*80)
+        # Resumen final
+        print(f"\n{'='*60}")
+        print("📈 RESUMEN FINAL")
+        print(f"{'='*60}")
+        print(f"✅ Flujo Total: {total_cumulative} vehículos")
+        print(f"✅ Ocupación Promedio: {df['Ocupacion_Actual'].mean():.1f} vehículos")
+        print(f"✅ Densidad Máxima: {df['Densidad'].max():.1f} veh/km²")
+        print(f"✅ Incidentes Detectados: {len(incident_detector.incidents)}")
+        print(f"   - Por tipo: {incident_detector.get_incident_summary()['by_type']}")
+        print(f"✅ Distribución de vehículos:")
+        print(f"   - Coches: {self.cumulative_counts[2]}")
+        print(f"   - Motocicletas: {self.cumulative_counts[3]}")
+        print(f"   - Bicicletas: {self.cumulative_counts[1]}")
+        print(f"{'='*60}\n")
         
-        print(f"\n📊 ESTADÍSTICAS GENERALES:")
-        print(f"   - Frames procesados: {len(frames)}")
-        print(f"   - Total de detecciones: {validation_report['summary']['total_detections']}")
-        print(f"   - Clases detectadas: {validation_report['summary']['unique_classes_detected']}")
-        
-        print(f"\n🚗 DISTRIBUCIÓN VEHICULAR:")
-        for class_name, data in validation_report['by_class'].items():
-            print(f"   - {class_name}: {data['count']} ({data['percentage']:.1f}%)")
-            print(f"     └─ Confianza media: {data['confidence']['mean']:.2%}")
-        
-        print(f"\n⚠️  INCIDENTES DETECTADOS:")
-        print(f"   - Total: {incident_summary['total']}")
-        for inc_type, count in incident_summary['by_type'].items():
-            print(f"   - {inc_type}: {count}")
-        
-        print(f"\n📁 ARCHIVOS GENERADOS:")
-        print(f"   📹 Video: {video_path}")
-        print(f"   📊 Métricas: {csv_path}")
-        print(f"   📈 Dashboard: {dashboard_path}")
-        print(f"   ✅ Validación: {validation_path}")
-        print(f"   ⚠️  Incidentes: {incidents_path}")
-        
-        print("\n" + "="*80)
-        print("🎉 PROCESO FINALIZADO CON ÉXITO")
-        print("="*80 + "\n")
+        return video_output_path, df, incident_detector.incidents
+
 
 # =============================================================================
-# PUNTO DE ENTRADA
+# PUNTO DE ENTRADA PRINCIPAL
 # =============================================================================
 
 if __name__ == "__main__":
+    """Modo standalone para testing"""
+    
+    print("🚀 Modo Standalone - Testing AeroTrace")
+    
+    # Configuración de ejemplo
+    CONFIG.SOURCE_IMAGES_DIR = "data/frames"  # Ajustar según tu estructura
+    CONFIG.MAX_FRAMES = 500  # Limitar para testing
+    
+    # Instanciar sistema
+    system = AeroTraceSystem()
+    
+    # Ejecutar
     try:
-        system = AeroTraceSystem()
-        system.run()
-    except KeyboardInterrupt:
-        print("\n\n⚠️  Proceso interrumpido por el usuario")
+        video_path, metrics_df, incidents = system.run(
+            scene_name="test_scene",
+            scenes_csv_path="scenes.csv"  # Si existe
+        )
+        
+        print(f"\n✅ Ejecución completada exitosamente")
+        print(f"📹 Video: {video_path}")
+        print(f"📊 Métricas: {len(metrics_df)} frames procesados")
+        print(f"⚠️ Incidentes: {len(incidents)}")
+        
     except Exception as e:
-        print(f"\n\n❌ ERROR FATAL: {str(e)}")
+        print(f"\n❌ Error durante la ejecución: {e}")
         import traceback
         traceback.print_exc()
