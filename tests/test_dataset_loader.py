@@ -7,9 +7,15 @@ from unittest.mock import MagicMock
 import numpy as np
 
 _STUBS = [
-    "cv2", "ultralytics", "supervision", "tqdm",
-    "plotly", "plotly.graph_objects", "plotly.subplots",
-    "matplotlib", "matplotlib.pyplot",
+    "cv2",
+    "ultralytics",
+    "supervision",
+    "tqdm",
+    "plotly",
+    "plotly.graph_objects",
+    "plotly.subplots",
+    "matplotlib",
+    "matplotlib.pyplot",
     "streamlit",
 ]
 for mod in _STUBS:

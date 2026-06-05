@@ -9,9 +9,15 @@ import numpy as np
 import pytest
 
 _STUBS = [
-    "cv2", "ultralytics", "supervision", "tqdm",
-    "plotly", "plotly.graph_objects", "plotly.subplots",
-    "matplotlib", "matplotlib.pyplot",
+    "cv2",
+    "ultralytics",
+    "supervision",
+    "tqdm",
+    "plotly",
+    "plotly.graph_objects",
+    "plotly.subplots",
+    "matplotlib",
+    "matplotlib.pyplot",
     "streamlit",
 ]
 for mod in _STUBS:
@@ -53,7 +59,7 @@ class TestGSDCalibration:
 
     def test_area_conversion(self):
         eng = make_engineer()
-        assert math.isclose(eng.area_px_to_m2(100), 100 * (eng.gsd ** 2))
+        assert math.isclose(eng.area_px_to_m2(100), 100 * (eng.gsd**2))
 
 
 class TestDensityCalculation:
@@ -77,12 +83,18 @@ class TestLevelOfService:
     @pytest.mark.parametrize(
         "density,expected_los",
         [
-            (0, "A"), (13, "A"),
-            (14, "B"), (21, "B"),
-            (22, "C"), (31, "C"),
-            (32, "D"), (44, "D"),
-            (45, "E"), (66, "E"),
-            (67, "F"), (200, "F"),
+            (0, "A"),
+            (13, "A"),
+            (14, "B"),
+            (21, "B"),
+            (22, "C"),
+            (31, "C"),
+            (32, "D"),
+            (44, "D"),
+            (45, "E"),
+            (66, "E"),
+            (67, "F"),
+            (200, "F"),
         ],
     )
     def test_los_thresholds(self, density, expected_los):
