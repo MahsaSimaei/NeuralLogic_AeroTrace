@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install lint tools
+        run: pip install black flake8 isort
+      - name: Check formatting (black)
+        run: black --check BLOCKCHAIN/ tests/
+      - name: Check imports (isort)
+        run: isort --check-only BLOCKCHAIN/ tests/
+      - name: Lint (flake8)
+        run: flake8 BLOCKCHAIN/ tests/ --max-line-length=120 --extend-ignore=E203,W503
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install test dependencies
+        run: pip install pytest pytest-cov numpy scipy pandas
+      - name: Run tests
+        run: pytest tests/ -v --cov=BLOCKCHAIN --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml

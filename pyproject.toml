@@ -1,0 +1,19 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 120
+target-version = ["py39", "py310", "py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.coverage.run]
+source = ["BLOCKCHAIN"]
+omit = ["BLOCKCHAIN/app.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 60
